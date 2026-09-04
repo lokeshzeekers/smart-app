@@ -1,23 +1,43 @@
 import { NavLink } from 'react-router-dom';
 
+// Home — stethoscope
 const HomeIcon = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 11.5L12 4l9 7.5M5 10v9a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1v-9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+    <path d="M6 3v6a4 4 0 008 0V3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M10 13v2a5 5 0 005 5 5 5 0 005-5v-1.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+    <circle cx="20" cy="12.5" r="1.6" stroke="currentColor" strokeWidth="1.6"/>
+  </svg>
 );
-const SearchIcon = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="1.8"/><path d="M20 20l-3.8-3.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
+
+// Coach — clipboard with checklist (step-by-step guidance)
+const CoachIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+    <rect x="5" y="4" width="14" height="17" rx="2" stroke="currentColor" strokeWidth="1.8"/>
+    <path d="M9 3.5h6a1 1 0 011 1V6H8V4.5a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.8"/>
+    <path d="M8.5 11.5l1.5 1.5 2.5-2.8M8.5 16.5l1.5 1.5 2.5-2.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
 );
-const HistoryIcon = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 8a9 9 0 1 1 1.2 9.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/><path d="M3 4v5h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><path d="M12 8v5l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
+
+// Check — vitals pulse (graded attempt metrics)
+const CheckModeIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+    <path d="M3 12.5h4l1.5-4 2.5 8 2-5.5 1.5 2.5H21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
 );
-const WalletIcon = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="3" y="6" width="18" height="13" rx="2" stroke="currentColor" strokeWidth="1.8"/><path d="M3 10h18" stroke="currentColor" strokeWidth="1.8"/><circle cx="16.5" cy="14" r="1.2" fill="currentColor"/></svg>
+
+// Certification — award / medal (formal certification record)
+const CertificationIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+    <circle cx="12" cy="9" r="5.5" stroke="currentColor" strokeWidth="1.8"/>
+    <path d="M9 13.5L7.5 20l4.5-2 4.5 2-1.5-6.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
 );
 
 const items = [
   { to: '/trainee/home', icon: HomeIcon },
-  { to: '/trainee/coach', icon: SearchIcon },
-  { to: '/trainee/certification', icon: HistoryIcon },
-  { to: '/trainee/wallet', icon: WalletIcon },
+  { to: '/trainee/coach', icon: CoachIcon },
+  { to: '/trainee/check', icon: CheckModeIcon },
+  { to: '/trainee/certification', icon: CertificationIcon },
 ];
 
 export default function BottomNav() {

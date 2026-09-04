@@ -41,32 +41,17 @@ export default function TraineeLogin() {
     }
   }
 
-  async function handleMockIdentity(provider: 'apaar' | 'aadhaar') {
-    setError('');
-    if (!email) return setError('Enter your email first, then continue with ' + provider.toUpperCase());
-    setLoading(true);
-    try {
-      const { data } = await api.post('/auth/identity/mock', {
-        email,
-        provider,
-        identityRef: `${provider.toUpperCase()}-${Date.now()}`,
-      });
-      login(data.token, data.user);
-      navigate('/trainee/home');
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Verification failed');
-    } finally {
-      setLoading(false);
-    }
-  }
-
   return (
     <div className="min-h-screen flex flex-col justify-center px-7 py-10 max-w-md mx-auto">
       <div className="text-center mb-10">
         <div className="mx-auto w-14 h-14 rounded-2xl bg-brand-700 flex items-center justify-center mb-5 shadow-card">
+          {/* Stethoscope */}
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
-            <path d="M12 3c-1.8 0-3 1.4-3 3.2v4.6C9 13.4 10.2 15 12 15s3-1.6 3-3.2V6.2C15 4.4 13.8 3 12 3z" stroke="#fff" strokeWidth="1.6"/>
-            <path d="M6 11v1.5A6 6 0 0012 18.5a6 6 0 006-6V11M12 18.5V21" stroke="#fff" strokeWidth="1.6" strokeLinecap="round"/>
+            <path d="M6 3v6a4 4 0 008 0V3" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M10 13v2a5 5 0 005 5 5 5 0 005-5v-1.5" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+            <circle cx="20" cy="12.5" r="1.8" stroke="#fff" strokeWidth="1.6"/>
+            <circle cx="6" cy="3" r="1.3" stroke="#fff" strokeWidth="1.4"/>
+            <circle cx="14" cy="3" r="1.3" stroke="#fff" strokeWidth="1.4"/>
           </svg>
         </div>
         <h1 className="font-display font-semibold text-2xl text-ink-900 leading-tight">SMArT</h1>
@@ -127,33 +112,6 @@ export default function TraineeLogin() {
           </button>
         </form>
       )}
-
-      <div className="flex items-center gap-3 my-7">
-        <div className="h-px bg-surface-border flex-1" />
-        <span className="text-ink-300 text-sm">or</span>
-        <div className="h-px bg-surface-border flex-1" />
-      </div>
-
-      <div className="space-y-3">
-        <button
-          onClick={() => handleMockIdentity('apaar')}
-          disabled={loading}
-          className="w-full bg-surface-muted rounded-xl py-3.5 font-medium text-[15px] text-ink-700 hover:bg-surface-border transition"
-        >
-          Continue with APAAR ID
-        </button>
-        <button
-          onClick={() => handleMockIdentity('aadhaar')}
-          disabled={loading}
-          className="w-full bg-surface-muted rounded-xl py-3.5 font-medium text-[15px] text-ink-700 hover:bg-surface-border transition"
-        >
-          Continue with Aadhaar
-        </button>
-      </div>
-
-      <p className="text-center text-xs text-ink-300 mt-3">
-        Identity verification is simulated in this build — swap in DigiLocker/UIDAI eKYC when sandbox access is approved.
-      </p>
 
       <div className="mt-8 pt-6 border-t border-surface-border text-center">
         <p className="text-xs text-ink-300 mb-3">Trainers use the button below</p>
