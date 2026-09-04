@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+}
+
+h1, h2, h3, h4, .font-display {
+  font-family: 'Poppins', sans-serif;
+}
+
+body, p, span, div, input, button {
+  font-family: 'Roboto', sans-serif;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: #D2E4E6; border-radius: 10px; }
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}

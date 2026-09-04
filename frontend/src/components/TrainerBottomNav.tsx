@@ -1,0 +1,36 @@
+import { useAuth } from '../context/AuthContext';
+
+export default function TrainerBottomNav({ notifCount = 0 }: { notifCount?: number }) {
+  const { user } = useAuth();
+
+  const Icon = ({ d }: { d: string }) => (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+      <path d={d} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+
+  return (
+    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-surface-border px-7 py-3 flex justify-between items-center max-w-md mx-auto">
+      <button className="text-brand-700">
+        <Icon d="M3 11.5L12 4l9 7.5M5 10v9a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1v-9" />
+      </button>
+      <button className="text-ink-300">
+        <Icon d="M11 17.5A6.5 6.5 0 1011 4.5a6.5 6.5 0 000 13zM20 20l-3.8-3.8" />
+      </button>
+      <button className="w-10 h-10 rounded-full bg-brand-700 flex items-center justify-center text-white">
+        <Icon d="M12 5v14M5 12h14" />
+      </button>
+      <button className="relative text-ink-300">
+        <Icon d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0" />
+        {notifCount > 0 && (
+          <span className="absolute -top-1.5 -right-1.5 bg-status-fail text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center">
+            {notifCount}
+          </span>
+        )}
+      </button>
+      <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 text-xs font-medium overflow-hidden">
+        {user?.avatar_url ? <img src={user.avatar_url} className="w-full h-full object-cover" /> : user?.full_name?.[0]?.toUpperCase()}
+      </div>
+    </nav>
+  );
+}
