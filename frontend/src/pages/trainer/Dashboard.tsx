@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import TrainerBottomNav from '../../components/TrainerBottomNav';
 import RegisterPersonModal from '../../components/RegisterPersonModal';
@@ -21,17 +21,21 @@ export default function TrainerDashboard() {
   const [loading, setLoading] = useState(true);
   const [showRegister, setShowRegister] = useState(false);
   const [search, setSearch] = useState('');
-  const [params, setParams] = useSearchParams();
+  const searchRef = useRef<HTMLInputElement>(null);
+  const location = useLocation();
   const navigate = useNavigate();
 
+  // TrainerBottomNav's "+" and search buttons navigate here with fresh
+  // location.state each time (a unique "at" timestamp), so this fires on
+  // every tap even when we're already on this page - not just on first mount.
   useEffect(() => {
-    if (params.get('register') === '1') {
-      setShowRegister(true);
-      params.delete('register');
-      setParams(params, { replace: true });
-    }
+    const state = location.state as { register?: boolean; focusSearch?: boolean } | null;
+    if (!state) return;
+    if (state.register) setShowRegister(true);
+    if (state.focusSearch) searchRef.current?.focus();
+    navigate(location.pathname, { replace: true, state: null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [location.state]);
 
   function loadTrainees() {
     setLoading(true);
@@ -60,6 +64,7 @@ export default function TrainerDashboard() {
           </button>
         </div>
         <input
+          ref={searchRef}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by name or email"

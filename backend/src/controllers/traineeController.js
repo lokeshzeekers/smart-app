@@ -77,4 +77,31 @@ async function getMyCertifications(req, res, next) {
   }
 }
 
-module.exports = { startSession, getSessionSteps, getMyCertifications };
+/** Quick "your progress" summary for the trainee's own home screen */
+async function getMySummary(req, res, next) {
+  try {
+    const { rows: latestRows } = await db.query(
+      `SELECT s.mode, s.completed_at, e.smart_score, e.ai_suggestion, e.trainer_final_verdict
+       FROM sessions s
+       LEFT JOIN evaluations e ON e.session_id = s.id
+       WHERE s.trainee_id = $1 AND s.completed_at IS NOT NULL
+       ORDER BY s.completed_at DESC
+       LIMIT 1`,
+      [req.user.id]
+    );
+
+    const { rows: countRows } = await db.query(
+      `SELECT count(*)::int AS total_sessions FROM sessions WHERE trainee_id = $1 AND completed_at IS NOT NULL`,
+      [req.user.id]
+    );
+
+    res.json({
+      latest: latestRows[0] || null,
+      totalSessions: countRows[0].total_sessions,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { startSession, getSessionSteps, getMyCertifications, getMySummary };

@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
 import BottomNav from '../../components/BottomNav';
+import ProfileModal from '../../components/ProfileModal';
 
 const modes = [
   {
@@ -24,9 +26,26 @@ const modes = [
   },
 ];
 
+interface Summary {
+  latest: {
+    mode: string;
+    completed_at: string;
+    smart_score: number | null;
+    ai_suggestion: 'pass' | 'bad_technique' | 'fail' | null;
+    trainer_final_verdict: 'pass' | 'bad_technique' | 'fail' | null;
+  } | null;
+  totalSessions: number;
+}
+
 export default function TraineeHome() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [showProfile, setShowProfile] = useState(false);
+
+  useEffect(() => {
+    api.get('/trainee/summary').then(({ data }) => setSummary(data));
+  }, []);
 
   async function startMode(mode: string) {
     const { data } = await api.post('/trainee/sessions', { mode });
@@ -40,12 +59,35 @@ export default function TraineeHome() {
           <p className="text-ink-500 text-sm">Welcome back,</p>
           <h1 className="font-display font-semibold text-xl text-ink-900">{user?.full_name}</h1>
         </div>
-        <button onClick={logout} className="text-xs text-ink-300 underline">
-          Sign out
+        <button
+          onClick={() => setShowProfile(true)}
+          className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-medium overflow-hidden"
+          aria-label="View profile"
+        >
+          {user?.avatar_url ? <img src={user.avatar_url} className="w-full h-full object-cover" /> : user?.full_name?.[0]?.toUpperCase()}
         </button>
       </header>
 
-      <div className="px-5 mt-6 space-y-4">
+      {summary && (
+        <div className="px-5 mt-4">
+          <div className="bg-surface-card rounded-2xl p-4 shadow-card flex items-center justify-between">
+            <div>
+              <p className="text-xs text-ink-300 mb-0.5">Your progress</p>
+              <p className="text-[15px] font-medium text-ink-900">
+                {summary.totalSessions} session{summary.totalSessions === 1 ? '' : 's'} completed
+              </p>
+            </div>
+            {summary.latest?.smart_score != null && (
+              <div className="text-right">
+                <p className="text-xs text-ink-300 mb-0.5">Last score</p>
+                <p className="font-mono text-lg font-semibold text-brand-700">{summary.latest.smart_score}/10</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="px-5 mt-4 space-y-4">
         {modes.map((m) => (
           <button
             key={m.key}
@@ -59,6 +101,7 @@ export default function TraineeHome() {
         ))}
       </div>
 
+      {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
       <BottomNav />
     </div>
   );
