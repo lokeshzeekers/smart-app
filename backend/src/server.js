@@ -6,6 +6,18 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const { Server } = require('socket.io');
 
+// Log-and-continue instead of a silent hard crash with no explanation in
+// the terminal. Real bugs should still be fixed, but a stray unhandled
+// rejection shouldn't take the whole backend down along with them.
+process.on('unhandledRejection', (reason) => {
+  // eslint-disable-next-line no-console
+  console.error('Unhandled promise rejection (server kept running):', reason);
+});
+process.on('uncaughtException', (err) => {
+  // eslint-disable-next-line no-console
+  console.error('Uncaught exception (server kept running):', err);
+});
+
 const authRoutes = require('./routes/authRoutes');
 const traineeRoutes = require('./routes/traineeRoutes');
 const trainerRoutes = require('./routes/trainerRoutes');

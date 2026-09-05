@@ -10,9 +10,14 @@ const pool = new Pool({
 });
 
 pool.on('error', (err) => {
+  // Log and keep running - do NOT process.exit() here. This fires for
+  // recoverable pool events too (an idle client's connection dropping,
+  // a brief Postgres restart/blip), and pg's Pool already discards that
+  // client and creates a new one on the next query. Exiting the whole
+  // process on every one of these was crashing the backend far more
+  // than an actual fatal DB outage would.
   // eslint-disable-next-line no-console
-  console.error('Unexpected PostgreSQL pool error', err);
-  process.exit(1);
+  console.error('PostgreSQL pool error (recovered automatically):', err.message);
 });
 
 module.exports = {

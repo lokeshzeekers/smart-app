@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
 import ModeHeader from '../../components/ModeHeader';
 import BottomNav from '../../components/BottomNav';
 import api from '../../api/client';
 import { downloadFile } from '../../api/download';
 import { useLiveSession } from '../../hooks/useLiveSession';
+import { useOrStartSession } from '../../hooks/useOrStartSession';
 
 function TrialCard({ label, metrics }: { label: string; metrics: any }) {
   return (
@@ -25,8 +25,8 @@ function TrialCard({ label, metrics }: { label: string; metrics: any }) {
 }
 
 export default function Certification() {
-  const { state } = useLocation() as { state?: { sessionId?: string } };
-  const { metrics: liveMetrics } = useLiveSession(state?.sessionId);
+  const { sessionId, starting } = useOrStartSession('certification');
+  const { metrics: liveMetrics } = useLiveSession(sessionId);
   const [history, setHistory] = useState<any[]>([]);
   const [downloading, setDownloading] = useState(false);
 
@@ -58,7 +58,11 @@ export default function Certification() {
           {downloading ? 'Preparing…' : 'Download my records (CSV)'}
         </button>
 
-        {state?.sessionId && <TrialCard label="Current Trial" metrics={liveMetrics} />}
+        {starting ? (
+          <p className="text-ink-300 text-sm text-center py-6">Starting trial…</p>
+        ) : (
+          sessionId && <TrialCard label="Current Trial" metrics={liveMetrics} />
+        )}
 
         {history.map((cert) =>
           cert.trials.map((t: any) => (
@@ -66,8 +70,8 @@ export default function Certification() {
           ))
         )}
 
-        {!state?.sessionId && history.length === 0 && (
-          <p className="text-ink-300 text-sm text-center py-10">No certification trials yet. Start one from Home.</p>
+        {!starting && history.length === 0 && (
+          <p className="text-ink-300 text-sm text-center py-10">No past certification trials yet — this one just started.</p>
         )}
       </div>
       <BottomNav />

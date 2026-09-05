@@ -1,9 +1,9 @@
-import { useLocation } from 'react-router-dom';
 import ModeHeader from '../../components/ModeHeader';
 import StepList from '../../components/StepList';
 import BottomNav from '../../components/BottomNav';
 import LiveTelemetryPanel from '../../components/LiveTelemetryPanel';
 import { useLiveSession } from '../../hooks/useLiveSession';
+import { useOrStartSession } from '../../hooks/useOrStartSession';
 
 function MetricRow({ label, value, unit }: { label: string; value: number | null | undefined; unit: string }) {
   return (
@@ -17,16 +17,16 @@ function MetricRow({ label, value, unit }: { label: string; value: number | null
 }
 
 export default function Check() {
-  const { state } = useLocation() as { state?: { sessionId?: string } };
-  const { steps, metrics, loading, telemetry } = useLiveSession(state?.sessionId);
+  const { sessionId, starting } = useOrStartSession('check');
+  const { steps, metrics, loading, telemetry } = useLiveSession(sessionId);
 
   return (
     <div className="min-h-screen max-w-md mx-auto pb-24">
       <ModeHeader title="SMArT - Check" />
       <div className="px-5 space-y-4">
         <LiveTelemetryPanel telemetry={telemetry} />
-        {loading ? (
-          <p className="text-ink-300 text-sm py-8 text-center">Loading steps…</p>
+        {starting || loading ? (
+          <p className="text-ink-300 text-sm py-8 text-center">Starting session…</p>
         ) : (
           <>
             <div className="bg-surface-card rounded-2xl px-5 shadow-card">
