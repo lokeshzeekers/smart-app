@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../../api/client';
+import { downloadFile } from '../../api/download';
 import VerdictBadge from '../../components/VerdictBadge';
 
 interface SessionRow {
@@ -36,6 +37,7 @@ export default function TraineePerformance() {
   const [trainee, setTrainee] = useState<TraineeInfo | null>(null);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     api.get(`/trainer/trainees/${traineeId}/performance`).then(({ data }) => {
@@ -44,6 +46,15 @@ export default function TraineePerformance() {
       setLoading(false);
     });
   }, [traineeId]);
+
+  async function handleDownload() {
+    setDownloading(true);
+    try {
+      await downloadFile(`/trainer/trainees/${traineeId}/records/export`, 'smart-records.csv');
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
     <div className="min-h-screen max-w-md mx-auto pb-10">
@@ -61,10 +72,20 @@ export default function TraineePerformance() {
             <div className="w-14 h-14 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-medium text-lg overflow-hidden">
               {trainee.avatar_url ? <img src={trainee.avatar_url} className="w-full h-full object-cover" /> : trainee.full_name[0]}
             </div>
-            <div>
+            <div className="flex-1">
               <h1 className="font-display font-semibold text-lg text-ink-900">{trainee.full_name}</h1>
               <p className="text-sm text-ink-300">{trainee.email}</p>
             </div>
+            <button
+              onClick={handleDownload}
+              disabled={downloading}
+              className="shrink-0 flex items-center gap-1.5 border border-surface-border rounded-xl px-3 py-2 text-xs font-medium text-ink-700 hover:bg-surface-muted transition disabled:opacity-60"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                <path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              {downloading ? 'Preparing…' : 'CSV'}
+            </button>
           </div>
 
           <div className="px-5 space-y-3">

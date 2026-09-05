@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const { sendTraineeWelcomeEmail } = require('../utils/mailer');
+const { sendCsv } = require('../utils/csv');
 
 /** Trainer registers a trainee under their own roster (email OTP login, no password) */
 async function registerTrainee(req, res, next) {
@@ -7,8 +8,33 @@ async function registerTrainee(req, res, next) {
     const { email, fullName } = req.body;
     if (!email || !fullName) return res.status(400).json({ error: 'email and fullName are required' });
 
-    const { rows: existing } = await db.query('SELECT id FROM users WHERE email = $1', [email]);
-    if (existing.length > 0) return res.status(409).json({ error: 'A user with this email already exists' });
+    const { rows: existing } = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+    const existingUser = existing[0];
+
+    if (existingUser) {
+      // Re-registering a previously-removed trainee's email restores their
+      // access (and yours to their records) instead of erroring out - this
+      // is the intended way to bring someone back after "Remove" on the
+      // roster, since Remove only deactivates rather than deleting them.
+      const wasRemovedByThisTrainer =
+        existingUser.role === 'trainee' && !existingUser.is_active && existingUser.trainer_id === req.user.id;
+
+      if (!wasRemovedByThisTrainer) {
+        return res.status(409).json({ error: 'A user with this email already exists' });
+      }
+
+      const { rows: reactivated } = await db.query(
+        `UPDATE users SET is_active = true, full_name = $2 WHERE id = $1
+         RETURNING id, email, full_name, created_at`,
+        [existingUser.id, fullName]
+      );
+
+      const delivered = await sendTraineeWelcomeEmail(email, fullName);
+      return res.status(200).json({
+        trainee: reactivated[0],
+        message: delivered ? 'Trainee re-registered and notified by email' : 'Trainee re-registered (email delivery not configured on this server)',
+      });
+    }
 
     const { rows } = await db.query(
       `INSERT INTO users (email, full_name, role, trainer_id, is_verified)
@@ -215,6 +241,55 @@ async function removeTrainee(req, res, next) {
   }
 }
 
+const EXPORT_COLUMNS = [
+  { key: 'mode', label: 'Mode' },
+  { key: 'trial_no', label: 'Trial #' },
+  { key: 'status', label: 'Status' },
+  { key: 'started_at', label: 'Started' },
+  { key: 'completed_at', label: 'Completed' },
+  { key: 'steps_passed', label: 'Steps Passed' },
+  { key: 'steps_total', label: 'Steps Total' },
+  { key: 'laryngoscope_lift_force', label: 'Laryngoscope Lift Force (psi)' },
+  { key: 'time_to_place_ett', label: 'Time To Place ETT (s)' },
+  { key: 'ett_location_cm', label: 'ETT Location (cm)' },
+  { key: 'total_time_to_intubate', label: 'Total Time To Intubate (s)' },
+  { key: 'smart_score', label: 'SMArT Score' },
+  { key: 'ai_suggestion', label: 'AI Suggestion' },
+  { key: 'trainer_final_verdict', label: 'Trainer Verdict' },
+];
+
+/** Trainer downloads one of their trainees' session/evaluation history as CSV */
+async function exportTraineeRecords(req, res, next) {
+  try {
+    const { traineeId } = req.params;
+
+    const { rows: traineeRows } = await db.query(
+      `SELECT id, full_name FROM users
+       WHERE id = $1 AND role = 'trainee' AND (trainer_id = $2 OR $3 = true)`,
+      [traineeId, req.user.id, req.user.role === 'admin']
+    );
+    if (traineeRows.length === 0) return res.status(404).json({ error: 'Trainee not found in your roster' });
+
+    const { rows } = await db.query(
+      `SELECT s.mode, s.trial_no, s.status, s.started_at, s.completed_at,
+              sm.steps_passed, sm.steps_total, sm.laryngoscope_lift_force, sm.time_to_place_ett,
+              sm.ett_location_cm, sm.total_time_to_intubate,
+              e.smart_score, e.ai_suggestion, e.trainer_final_verdict
+       FROM sessions s
+       LEFT JOIN session_metrics sm ON sm.session_id = s.id
+       LEFT JOIN evaluations e ON e.session_id = s.id
+       WHERE s.trainee_id = $1
+       ORDER BY s.started_at DESC`,
+      [traineeId]
+    );
+
+    const safeName = traineeRows[0].full_name.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    sendCsv(res, `smart-records-${safeName}.csv`, rows, EXPORT_COLUMNS);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   getReviewQueue,
   getEvaluationDetail,
@@ -223,4 +298,5 @@ module.exports = {
   listTrainees,
   getTraineePerformance,
   removeTrainee,
+  exportTraineeRecords,
 };

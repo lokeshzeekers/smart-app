@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { sendCsv } = require('../utils/csv');
 
 /** Trainee starts a new attempt on the manikin (Coach / Check / Certification) */
 async function startSession(req, res, next) {
@@ -104,4 +105,42 @@ async function getMySummary(req, res, next) {
   }
 }
 
-module.exports = { startSession, getSessionSteps, getMyCertifications, getMySummary };
+const EXPORT_COLUMNS = [
+  { key: 'mode', label: 'Mode' },
+  { key: 'trial_no', label: 'Trial #' },
+  { key: 'status', label: 'Status' },
+  { key: 'started_at', label: 'Started' },
+  { key: 'completed_at', label: 'Completed' },
+  { key: 'steps_passed', label: 'Steps Passed' },
+  { key: 'steps_total', label: 'Steps Total' },
+  { key: 'laryngoscope_lift_force', label: 'Laryngoscope Lift Force (psi)' },
+  { key: 'time_to_place_ett', label: 'Time To Place ETT (s)' },
+  { key: 'ett_location_cm', label: 'ETT Location (cm)' },
+  { key: 'total_time_to_intubate', label: 'Total Time To Intubate (s)' },
+  { key: 'smart_score', label: 'SMArT Score' },
+  { key: 'ai_suggestion', label: 'AI Suggestion' },
+  { key: 'trainer_final_verdict', label: 'Trainer Verdict' },
+];
+
+/** Download my own session/evaluation history as CSV */
+async function exportMyRecords(req, res, next) {
+  try {
+    const { rows } = await db.query(
+      `SELECT s.mode, s.trial_no, s.status, s.started_at, s.completed_at,
+              sm.steps_passed, sm.steps_total, sm.laryngoscope_lift_force, sm.time_to_place_ett,
+              sm.ett_location_cm, sm.total_time_to_intubate,
+              e.smart_score, e.ai_suggestion, e.trainer_final_verdict
+       FROM sessions s
+       LEFT JOIN session_metrics sm ON sm.session_id = s.id
+       LEFT JOIN evaluations e ON e.session_id = s.id
+       WHERE s.trainee_id = $1
+       ORDER BY s.started_at DESC`,
+      [req.user.id]
+    );
+    sendCsv(res, `smart-records-${req.user.id}.csv`, rows, EXPORT_COLUMNS);
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { startSession, getSessionSteps, getMyCertifications, getMySummary, exportMyRecords };

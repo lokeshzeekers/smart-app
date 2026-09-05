@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import ModeHeader from '../../components/ModeHeader';
 import BottomNav from '../../components/BottomNav';
 import api from '../../api/client';
+import { downloadFile } from '../../api/download';
 import { useLiveSession } from '../../hooks/useLiveSession';
 
 function TrialCard({ label, metrics }: { label: string; metrics: any }) {
@@ -27,15 +28,36 @@ export default function Certification() {
   const { state } = useLocation() as { state?: { sessionId?: string } };
   const { metrics: liveMetrics } = useLiveSession(state?.sessionId);
   const [history, setHistory] = useState<any[]>([]);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     api.get('/trainee/certifications').then(({ data }) => setHistory(data.certifications));
   }, []);
 
+  async function handleDownload() {
+    setDownloading(true);
+    try {
+      await downloadFile('/trainee/records/export', 'smart-records.csv');
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div className="min-h-screen max-w-md mx-auto pb-24">
       <ModeHeader title="SMArT - Certification" />
       <div className="px-5 space-y-4">
+        <button
+          onClick={handleDownload}
+          disabled={downloading}
+          className="w-full flex items-center justify-center gap-2 bg-surface-card border border-surface-border rounded-xl py-3 text-sm font-medium text-ink-700 hover:bg-surface-muted transition disabled:opacity-60"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          {downloading ? 'Preparing…' : 'Download my records (CSV)'}
+        </button>
+
         {state?.sessionId && <TrialCard label="Current Trial" metrics={liveMetrics} />}
 
         {history.map((cert) =>
