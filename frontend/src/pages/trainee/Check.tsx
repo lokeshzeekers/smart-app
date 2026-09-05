@@ -2,6 +2,7 @@ import { useLocation } from 'react-router-dom';
 import ModeHeader from '../../components/ModeHeader';
 import StepList from '../../components/StepList';
 import BottomNav from '../../components/BottomNav';
+import LiveTelemetryPanel from '../../components/LiveTelemetryPanel';
 import { useLiveSession } from '../../hooks/useLiveSession';
 
 function MetricRow({ label, value, unit }: { label: string; value: number | null | undefined; unit: string }) {
@@ -17,12 +18,13 @@ function MetricRow({ label, value, unit }: { label: string; value: number | null
 
 export default function Check() {
   const { state } = useLocation() as { state?: { sessionId?: string } };
-  const { steps, metrics, loading } = useLiveSession(state?.sessionId);
+  const { steps, metrics, loading, telemetry } = useLiveSession(state?.sessionId);
 
   return (
     <div className="min-h-screen max-w-md mx-auto pb-24">
       <ModeHeader title="SMArT - Check" />
       <div className="px-5 space-y-4">
+        <LiveTelemetryPanel telemetry={telemetry} />
         {loading ? (
           <p className="text-ink-300 text-sm py-8 text-center">Loading steps…</p>
         ) : (

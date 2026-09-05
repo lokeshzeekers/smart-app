@@ -12,11 +12,27 @@ export interface SessionMetrics {
   steps_total: number | null;
 }
 
+export interface Telemetry {
+  toolDetected: boolean;
+  teethSafe: boolean;
+  depthCm: number | null;
+  depthStatus: string | null;
+  wrongPath: boolean;
+  correctPath: boolean;
+  headAngle: number | null;
+  headCorrect: boolean;
+  imuCalib: number;
+  airflow: number | null;
+  bannerMsg: string;
+  bannerType: 'progress' | 'wrong' | 'complete';
+}
+
 export function useLiveSession(sessionId: string | undefined) {
   const [steps, setSteps] = useState<StepItem[]>([]);
   const [metrics, setMetrics] = useState<SessionMetrics | null>(null);
   const [completed, setCompleted] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [telemetry, setTelemetry] = useState<Telemetry | null>(null);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -43,16 +59,20 @@ export function useLiveSession(sessionId: string | undefined) {
       setCompleted(true);
     };
 
+    const onTelemetry = (payload: Telemetry) => setTelemetry(payload);
+
     socket?.on('step:update', onStepUpdate);
     socket?.on('session:complete', onComplete);
+    socket?.on('telemetry:update', onTelemetry);
 
     return () => {
       mounted = false;
       socket?.emit('session:leave', sessionId);
       socket?.off('step:update', onStepUpdate);
       socket?.off('session:complete', onComplete);
+      socket?.off('telemetry:update', onTelemetry);
     };
   }, [sessionId]);
 
-  return { steps, metrics, completed, loading };
+  return { steps, metrics, completed, loading, telemetry };
 }

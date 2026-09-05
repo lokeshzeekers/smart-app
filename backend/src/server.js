@@ -9,6 +9,7 @@ const { Server } = require('socket.io');
 const authRoutes = require('./routes/authRoutes');
 const traineeRoutes = require('./routes/traineeRoutes');
 const trainerRoutes = require('./routes/trainerRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 const esp32Routes = require('./routes/esp32Routes');
 const { attachSockets } = require('./sockets');
 
@@ -31,6 +32,7 @@ app.get('/health', (req, res) => res.json({ status: 'ok', service: 'smart-airway
 app.use('/api/auth', authRoutes);
 app.use('/api/trainee', traineeRoutes);
 app.use('/api/trainer', trainerRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/esp32', esp32Routes);
 
 // 404

@@ -27,6 +27,7 @@ CREATE TABLE users (
     full_name           VARCHAR(150) NOT NULL,
     role                user_role NOT NULL,
     institution_id      UUID REFERENCES institutions(id) ON DELETE SET NULL,
+    trainer_id          UUID REFERENCES users(id) ON DELETE SET NULL,  -- for trainees: which trainer registered them
     avatar_url          TEXT,
     apaar_id            VARCHAR(50)  UNIQUE,        -- mocked identity linkage
     aadhaar_ref_token   VARCHAR(100) UNIQUE,        -- NEVER store raw Aadhaar, only a reference/verification token
@@ -38,6 +39,7 @@ CREATE TABLE users (
 
 CREATE INDEX idx_users_institution ON users(institution_id);
 CREATE INDEX idx_users_role ON users(role);
+CREATE INDEX idx_users_trainer ON users(trainer_id);
 
 -- One-time-password table for email/mobile OTP login
 CREATE TABLE otp_codes (
@@ -105,6 +107,24 @@ CREATE TABLE session_step_events (
     recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (session_id, step_no)
 );
+
+-- Discrete real-time alerts pushed by the ESP32 as they fire (wrong path,
+-- over depth, end point reached, teeth contact...). The continuous stream
+-- (depth/angle/etc every ~150ms) is only broadcast live over socket.io and
+-- NOT written here - this table is just the "moments that mattered", shown
+-- as a timeline on the trainer's review screen and usable for audit/scoring.
+CREATE TYPE session_alert_kind AS ENUM
+    ('wrong_path', 'correct_path', 'teeth_contact', 'over_depth', 'end_point', 'process_complete');
+
+CREATE TABLE session_alerts (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id      UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    kind            session_alert_kind NOT NULL,
+    detail          JSONB,                             -- e.g. {"depthCm": 10, "headAngle": -97.2}
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_session_alerts_session ON session_alerts(session_id, created_at);
 
 -- Final measured outcome values per session (Check / Certification cards)
 CREATE TABLE session_metrics (

@@ -26,18 +26,14 @@ async function requestOtp(req, res, next) {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'email is required' });
 
-    let { rows } = await db.query('SELECT * FROM users WHERE email = $1', [email]);
-    let user = rows[0];
+    const { rows } = await db.query(`SELECT * FROM users WHERE email = $1 AND role = 'trainee'`, [email]);
+    const user = rows[0];
 
     if (!user) {
-      // auto-provision a trainee shell account on first login with a
-      // university email; profile gets completed after verification.
-      const insert = await db.query(
-        `INSERT INTO users (email, full_name, role, is_verified)
-         VALUES ($1, $2, 'trainee', false) RETURNING *`,
-        [email, email.split('@')[0]]
-      );
-      user = insert.rows[0];
+      // Trainee accounts are registered by a trainer - no self-signup / auto
+      // provisioning here (that was an open door for anyone to create an
+      // account with any email address).
+      return res.status(404).json({ error: 'No trainee account found for this email. Ask your trainer to register you.' });
     }
 
     const code = generateOtp();

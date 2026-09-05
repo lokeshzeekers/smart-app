@@ -18,7 +18,7 @@ export default function TrainerLogin() {
     try {
       const { data } = await api.post('/auth/trainer/login', { email, password });
       login(data.token, data.user);
-      navigate('/trainer/dashboard');
+      navigate(data.user.role === 'admin' ? '/admin/dashboard' : '/trainer/dashboard');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Invalid credentials');
     } finally {

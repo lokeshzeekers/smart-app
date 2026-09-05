@@ -151,4 +151,70 @@ async function completeSession(req, res, next) {
   }
 }
 
-module.exports = { pushStepEvent, completeSession };
+/**
+ * Called by the ESP32 firmware continuously (its own loop() cadence, e.g.
+ * every ~150ms) with the same live state it already computes for its local
+ * webpage: POST /api/esp32/sessions/:sessionId/telemetry
+ *   {
+ *     "toolDetected": true, "teethSafe": true,
+ *     "depthCm": 6, "depthStatus": "INSERTING",
+ *     "wrongPath": false, "correctPath": true,
+ *     "headAngle": -97.4, "headCorrect": true, "imuCalib": 3,
+ *     "airflow": 1.2,
+ *     "bannerMsg": "IN PROGRESS", "bannerType": "progress",
+ *     "alertEvent": "end_point"   // OPTIONAL - only sent once, the instant
+ *                                 // an alert fires (mirrors the firmware's
+ *                                 // own Serial.println(">>> ...") moments)
+ *   }
+ *
+ * This is intentionally cheap: the continuous state is only relayed live
+ * over socket.io so the Coach/Check screens can update every tick. Nothing
+ * is written to the DB unless "alertEvent" is present, in which case that
+ * one moment is persisted to session_alerts for the trainer's review
+ * timeline.
+ */
+async function pushTelemetry(req, res, next) {
+  try {
+    const { sessionId } = req.params;
+    const {
+      toolDetected, teethSafe, depthCm, depthStatus,
+      wrongPath, correctPath, headAngle, headCorrect, imuCalib,
+      airflow, bannerMsg, bannerType, alertEvent,
+    } = req.body;
+
+    const payload = {
+      toolDetected: !!toolDetected,
+      teethSafe: !!teethSafe,
+      depthCm: depthCm ?? null,
+      depthStatus: depthStatus ?? null,
+      wrongPath: !!wrongPath,
+      correctPath: !!correctPath,
+      headAngle: headAngle ?? null,
+      headCorrect: !!headCorrect,
+      imuCalib: imuCalib ?? 0,
+      airflow: airflow ?? null,
+      bannerMsg: bannerMsg ?? '',
+      bannerType: bannerType ?? 'progress',
+      at: new Date().toISOString(),
+    };
+
+    const io = req.app.get('io');
+    io.to(`session:${sessionId}`).emit('telemetry:update', payload);
+
+    const ALLOWED_ALERTS = ['wrong_path', 'correct_path', 'teeth_contact', 'over_depth', 'end_point', 'process_complete'];
+    if (alertEvent && ALLOWED_ALERTS.includes(alertEvent)) {
+      const { rows } = await db.query(
+        `INSERT INTO session_alerts (session_id, kind, detail) VALUES ($1, $2, $3) RETURNING *`,
+        [sessionId, alertEvent, JSON.stringify({ depthCm: payload.depthCm, headAngle: payload.headAngle })]
+      );
+      io.to(`session:${sessionId}`).emit('alert:new', rows[0]);
+      io.to('trainers').emit('alert:new', { sessionId, ...rows[0] });
+    }
+
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { pushStepEvent, completeSession, pushTelemetry };
