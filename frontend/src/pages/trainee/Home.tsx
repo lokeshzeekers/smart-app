@@ -5,24 +5,48 @@ import api from '../../api/client';
 import BottomNav from '../../components/BottomNav';
 import ProfileModal from '../../components/ProfileModal';
 
+const CoachIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+    <rect x="5" y="4" width="14" height="17" rx="2" stroke="#fff" strokeWidth="1.8"/>
+    <path d="M9 3.5h6a1 1 0 011 1V6H8V4.5a1 1 0 011-1z" stroke="#fff" strokeWidth="1.8"/>
+    <path d="M8.5 11.5l1.5 1.5 2.5-2.8M8.5 16.5l1.5 1.5 2.5-2.8" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+const CheckIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+    <path d="M3 12.5h4l1.5-4 2.5 8 2-5.5 1.5 2.5H21" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+const CertificationIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+    <circle cx="12" cy="9" r="5.5" stroke="#fff" strokeWidth="1.8"/>
+    <path d="M9 13.5L7.5 20l4.5-2 4.5 2-1.5-6.5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
 const modes = [
   {
     key: 'coach',
     title: 'Coach',
     desc: 'Step-by-step live guidance while you practice on the manikin.',
     color: 'bg-brand-700',
+    Icon: CoachIcon,
   },
   {
     key: 'check',
     title: 'Check',
     desc: 'Run a graded attempt and see your measured metrics.',
     color: 'bg-brand-600',
+    Icon: CheckIcon,
   },
   {
     key: 'certification',
     title: 'Certification',
     desc: 'Formal trials that count toward your certification record.',
     color: 'bg-brand-900',
+    Icon: CertificationIcon,
   },
 ];
 
@@ -94,7 +118,9 @@ export default function TraineeHome() {
             onClick={() => startMode(m.key)}
             className="w-full text-left bg-surface-card rounded-2xl p-5 shadow-card hover:-translate-y-0.5 transition"
           >
-            <div className={`w-10 h-10 rounded-xl ${m.color} mb-3`} />
+            <div className={`w-10 h-10 rounded-xl ${m.color} mb-3 flex items-center justify-center`}>
+              <m.Icon />
+            </div>
             <h3 className="font-display font-semibold text-base text-ink-900">{m.title}</h3>
             <p className="text-ink-500 text-sm mt-1 leading-relaxed">{m.desc}</p>
           </button>

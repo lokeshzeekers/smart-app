@@ -20,6 +20,7 @@ export default function TrainerDashboard() {
   const [trainees, setTrainees] = useState<TraineeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showRegister, setShowRegister] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState<TraineeRow | null>(null);
   const [search, setSearch] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   const location = useLocation();
@@ -46,6 +47,13 @@ export default function TrainerDashboard() {
   }
 
   useEffect(loadTrainees, []);
+
+  async function handleRemove() {
+    if (!confirmRemove) return;
+    await api.delete(`/trainer/trainees/${confirmRemove.id}`);
+    setConfirmRemove(null);
+    loadTrainees();
+  }
 
   const filtered = trainees.filter(
     (t) => t.full_name.toLowerCase().includes(search.toLowerCase()) || t.email.toLowerCase().includes(search.toLowerCase())
@@ -82,27 +90,37 @@ export default function TrainerDashboard() {
         )}
 
         {filtered.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => navigate(`/trainer/trainees/${t.id}`)}
-            className="w-full bg-surface-card rounded-2xl p-4 shadow-card flex items-center gap-3 text-left"
-          >
-            <div className="w-11 h-11 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-medium overflow-hidden shrink-0">
-              {t.avatar_url ? <img src={t.avatar_url} className="w-full h-full object-cover" /> : t.full_name[0]}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[15px] font-medium text-ink-900 truncate">{t.full_name}</p>
-              <p className="text-xs text-ink-300 truncate">{t.email}</p>
-            </div>
-            <div className="shrink-0 flex flex-col items-end gap-1">
-              {t.ai_suggestion ? (
-                <VerdictBadge verdict={t.ai_suggestion} />
-              ) : (
-                <span className="text-xs text-ink-300">{t.is_verified ? 'No sessions yet' : 'Not yet signed in'}</span>
-              )}
-              {t.smart_score != null && <span className="text-xs text-ink-500">Score: {t.smart_score}</span>}
-            </div>
-          </button>
+          <div key={t.id} className="w-full bg-surface-card rounded-2xl p-4 shadow-card flex items-center gap-3">
+            <button onClick={() => navigate(`/trainer/trainees/${t.id}`)} className="flex-1 flex items-center gap-3 text-left min-w-0">
+              <div className="w-11 h-11 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-medium overflow-hidden shrink-0">
+                {t.avatar_url ? <img src={t.avatar_url} className="w-full h-full object-cover" /> : t.full_name[0]}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[15px] font-medium text-ink-900 truncate">{t.full_name}</p>
+                <p className="text-xs text-ink-300 truncate">{t.email}</p>
+              </div>
+              <div className="shrink-0 flex flex-col items-end gap-1">
+                {t.ai_suggestion ? (
+                  <VerdictBadge verdict={t.ai_suggestion} />
+                ) : (
+                  <span className="text-xs text-ink-300">{t.is_verified ? 'No sessions yet' : 'Not yet signed in'}</span>
+                )}
+                {t.smart_score != null && <span className="text-xs text-ink-500">Score: {t.smart_score}</span>}
+              </div>
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setConfirmRemove(t);
+              }}
+              className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-ink-300 hover:text-status-fail hover:bg-status-failBg transition"
+              aria-label={`Remove ${t.full_name}`}
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+                <path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m2 0v13a1 1 0 01-1 1H8a1 1 0 01-1-1V7h10zM10 11v6M14 11v6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </div>
         ))}
       </div>
 
@@ -116,6 +134,32 @@ export default function TrainerDashboard() {
             loadTrainees();
           }}
         />
+      )}
+
+      {confirmRemove && (
+        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md p-6">
+            <h2 className="font-display font-semibold text-lg text-ink-900 mb-2">Remove trainee?</h2>
+            <p className="text-sm text-ink-500 mb-6">
+              <b>{confirmRemove.full_name}</b> will lose access and drop off your roster. Their past session and
+              certification records are kept, not deleted.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmRemove(null)}
+                className="flex-1 bg-surface-muted text-ink-700 rounded-xl py-3 font-medium text-[15px]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRemove}
+                className="flex-1 bg-status-fail text-white rounded-xl py-3 font-medium text-[15px] hover:opacity-90 transition"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <TrainerBottomNav />

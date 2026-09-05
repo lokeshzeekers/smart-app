@@ -35,6 +35,17 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change_this_to_a_long_random_string}
       JWT_EXPIRES_IN: 7d
       CLIENT_ORIGIN: ${CLIENT_ORIGIN:-*}
+      OTP_EXPIRY_MINUTES: ${OTP_EXPIRY_MINUTES:-5}
+      # Real OTP delivery in production - set these in a .env file next to
+      # this docker-compose.yml (docker compose reads it automatically).
+      # A free Gmail App Password works: see backend/.env.example.
+      # If left unset, the backend falls back to logging the OTP instead
+      # of emailing it - that's the "DEV ONLY" message you're seeing.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-SMArT Airway Training <no-reply@smart-airway.app>}
     ports:
       - "4000:4000"
 

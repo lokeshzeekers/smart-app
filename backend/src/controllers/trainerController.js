@@ -49,7 +49,7 @@ async function listTrainees(req, res, next) {
           ORDER BY s.completed_at DESC NULLS LAST
           LIMIT 1
        ) latest ON true
-       WHERE u.role = 'trainee' AND u.trainer_id = $1
+       WHERE u.role = 'trainee' AND u.trainer_id = $1 AND u.is_active = true
        ORDER BY u.created_at DESC`,
       [req.user.id]
     );
@@ -193,6 +193,28 @@ async function submitReview(req, res, next) {
   }
 }
 
+/** Remove a trainee from this trainer's active roster. This deactivates
+ * rather than hard-deletes: sessions/evaluations reference trainee_id with
+ * ON DELETE CASCADE, so a real delete would wipe their entire training
+ * history. Deactivated trainees drop out of the roster and can no longer
+ * log in, but their records are preserved for audit/certification purposes.
+ */
+async function removeTrainee(req, res, next) {
+  try {
+    const { traineeId } = req.params;
+    const { rows } = await db.query(
+      `UPDATE users SET is_active = false
+       WHERE id = $1 AND role = 'trainee' AND (trainer_id = $2 OR $3 = true)
+       RETURNING id`,
+      [traineeId, req.user.id, req.user.role === 'admin']
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Trainee not found in your roster' });
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   getReviewQueue,
   getEvaluationDetail,
@@ -200,4 +222,5 @@ module.exports = {
   registerTrainee,
   listTrainees,
   getTraineePerformance,
+  removeTrainee,
 };

@@ -36,6 +36,10 @@ async function requestOtp(req, res, next) {
       return res.status(404).json({ error: 'No trainee account found for this email. Ask your trainer to register you.' });
     }
 
+    if (!user.is_active) {
+      return res.status(403).json({ error: 'This account has been deactivated by your trainer.' });
+    }
+
     const code = generateOtp();
     const codeHash = await bcrypt.hash(code, 8);
     const expiryMinutes = Number(process.env.OTP_EXPIRY_MINUTES || 5);
