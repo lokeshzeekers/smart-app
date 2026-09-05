@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import api from '../api/client';
+import { getSelectedDeviceId } from '../api/device';
 
 /**
  * Coach/Check/Certification only work with a live sessionId. The Home page
@@ -19,7 +20,7 @@ export function useOrStartSession(mode: 'coach' | 'check' | 'certification') {
     if (state?.sessionId) return;
     let cancelled = false;
     setStarting(true);
-    api.post('/trainee/sessions', { mode }).then(({ data }) => {
+    api.post('/trainee/sessions', { mode, deviceId: getSelectedDeviceId() || undefined }).then(({ data }) => {
       if (!cancelled) {
         setAutoSessionId(data.session.id);
         setStarting(false);

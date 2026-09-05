@@ -143,4 +143,16 @@ async function exportMyRecords(req, res, next) {
   }
 }
 
-module.exports = { startSession, getSessionSteps, getMyCertifications, getMySummary, exportMyRecords };
+/** Active manikins available to pick from when starting a session */
+async function listDevices(req, res, next) {
+  try {
+    const { rows } = await db.query(
+      `SELECT id, device_uid, label FROM devices WHERE is_active = true ORDER BY label`
+    );
+    res.json({ devices: rows });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { startSession, getSessionSteps, getMyCertifications, getMySummary, exportMyRecords, listDevices };

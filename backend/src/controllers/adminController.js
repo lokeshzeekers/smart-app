@@ -68,4 +68,57 @@ async function deactivateTrainer(req, res, next) {
   }
 }
 
-module.exports = { createTrainer, listTrainers, deactivateTrainer };
+/**
+ * Admin registers a physical manikin. Generates a device_uid + a plaintext
+ * API key that is shown exactly once (only the bcrypt hash is stored) -
+ * these two values get flashed into the ESP32 firmware so it can
+ * authenticate itself, same shape as backend/.env.example describes for
+ * the x-device-id / x-device-key headers.
+ */
+async function createDevice(req, res, next) {
+  try {
+    const { label } = req.body;
+    if (!label) return res.status(400).json({ error: 'label is required' });
+
+    const deviceUid = `SMART-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+    const apiKey = crypto.randomBytes(24).toString('base64url');
+    const apiKeyHash = await bcrypt.hash(apiKey, 10);
+
+    const { rows } = await db.query(
+      `INSERT INTO devices (device_uid, label, api_key_hash) VALUES ($1, $2, $3)
+       RETURNING id, device_uid, label, created_at`,
+      [deviceUid, label, apiKeyHash]
+    );
+
+    res.status(201).json({
+      device: rows[0],
+      apiKey, // shown once only - not retrievable again after this response
+      message: 'Save this API key now - it cannot be shown again. Flash both deviceUid and apiKey into the firmware.',
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function listDevices(req, res, next) {
+  try {
+    const { rows } = await db.query(
+      `SELECT id, device_uid, label, last_seen_at, is_active, created_at FROM devices ORDER BY created_at DESC`
+    );
+    res.json({ devices: rows });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function deactivateDevice(req, res, next) {
+  try {
+    const { deviceId } = req.params;
+    await db.query(`UPDATE devices SET is_active = false WHERE id = $1`, [deviceId]);
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { createTrainer, listTrainers, deactivateTrainer, createDevice, listDevices, deactivateDevice };

@@ -217,4 +217,27 @@ async function pushTelemetry(req, res, next) {
   }
 }
 
-module.exports = { pushStepEvent, completeSession, pushTelemetry };
+/**
+ * Polled by the firmware (device-authed, no sessionId known yet) to find
+ * out which session it should be reporting against right now. A trainee
+ * picks this same physical manikin when they start a session on their
+ * phone (sessions.device_id), so the ESP32 just needs to ask "what's my
+ * current job" - no keypad/display/pairing code needed on the device.
+ * Returns the most recently started session for this device that hasn't
+ * been completed yet, or null if idle.
+ */
+async function getActiveSession(req, res, next) {
+  try {
+    const { rows } = await db.query(
+      `SELECT id FROM sessions
+       WHERE device_id = $1 AND completed_at IS NULL
+       ORDER BY started_at DESC LIMIT 1`,
+      [req.device.id]
+    );
+    res.json({ sessionId: rows[0]?.id || null });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { pushStepEvent, completeSession, pushTelemetry, getActiveSession };

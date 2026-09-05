@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
+import { getSelectedDeviceId, setSelectedDeviceId } from '../../api/device';
 import BottomNav from '../../components/BottomNav';
 import ProfileModal from '../../components/ProfileModal';
 
@@ -61,18 +62,39 @@ interface Summary {
   totalSessions: number;
 }
 
+interface Device {
+  id: string;
+  device_uid: string;
+  label: string;
+}
+
 export default function TraineeHome() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [summary, setSummary] = useState<Summary | null>(null);
   const [showProfile, setShowProfile] = useState(false);
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [selectedDevice, setSelectedDevice] = useState<string | null>(getSelectedDeviceId());
 
   useEffect(() => {
     api.get('/trainee/summary').then(({ data }) => setSummary(data));
+    api.get('/trainee/devices').then(({ data }) => {
+      setDevices(data.devices);
+      // Auto-pick if there's exactly one manikin and nothing chosen yet
+      if (data.devices.length === 1 && !getSelectedDeviceId()) {
+        setSelectedDeviceId(data.devices[0].id);
+        setSelectedDevice(data.devices[0].id);
+      }
+    });
   }, []);
 
+  function chooseDevice(id: string) {
+    setSelectedDeviceId(id);
+    setSelectedDevice(id);
+  }
+
   async function startMode(mode: string) {
-    const { data } = await api.post('/trainee/sessions', { mode });
+    const { data } = await api.post('/trainee/sessions', { mode, deviceId: selectedDevice || undefined });
     navigate(`/trainee/${mode}`, { state: { sessionId: data.session.id } });
   }
 
@@ -107,6 +129,27 @@ export default function TraineeHome() {
                 <p className="font-mono text-lg font-semibold text-brand-700">{summary.latest.smart_score}/10</p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {devices.length > 1 && (
+        <div className="px-5 mt-4">
+          <p className="text-xs text-ink-300 mb-1.5">Manikin</p>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {devices.map((d) => (
+              <button
+                key={d.id}
+                onClick={() => chooseDevice(d.id)}
+                className={`shrink-0 px-3.5 py-2 rounded-xl text-sm font-medium border transition ${
+                  selectedDevice === d.id
+                    ? 'bg-brand-700 text-white border-brand-700'
+                    : 'bg-surface-card text-ink-700 border-surface-border'
+                }`}
+              >
+                {d.label}
+              </button>
+            ))}
           </div>
         </div>
       )}
