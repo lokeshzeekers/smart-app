@@ -4,6 +4,7 @@ const {
   createTrainer,
   listTrainers,
   deactivateTrainer,
+  resetTrainerPassword,
   createDevice,
   listDevices,
   assignDevice,
@@ -15,6 +16,7 @@ router.use(requireAuth, requireRole('admin'));
 
 router.post('/trainers', createTrainer);
 router.get('/trainers', listTrainers);
+router.patch('/trainers/:trainerId/password', resetTrainerPassword);
 router.delete('/trainers/:trainerId', deactivateTrainer);
 
 router.post('/devices', createDevice);

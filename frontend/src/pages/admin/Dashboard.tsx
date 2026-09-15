@@ -31,6 +31,83 @@ function TrashIcon() {
   );
 }
 
+function KeyIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+      <circle cx="8" cy="15" r="4" stroke="currentColor" strokeWidth="1.7"/>
+      <path d="M11 12l8-8M16 4l3 3M13 7l2 2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+function ResetPasswordModal({ trainer, onClose }: { trainer: TrainerRow; onClose: () => void }) {
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (password.length < 8) return setError('Password must be at least 8 characters');
+    setError('');
+    setLoading(true);
+    try {
+      await api.patch(`/admin/trainers/${trainer.id}/password`, { password });
+      setDone(true);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Something went wrong');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md p-6">
+        {done ? (
+          <>
+            <h2 className="font-display font-semibold text-lg text-ink-900 mb-2">Password reset</h2>
+            <p className="text-sm text-ink-500 mb-6">
+              {trainer.full_name} can now sign in with the new password you set. Share it with them directly.
+            </p>
+            <button onClick={onClose} className="w-full bg-brand-700 text-white rounded-xl py-3 font-medium text-[15px] hover:bg-brand-600 transition">
+              Close
+            </button>
+          </>
+        ) : (
+          <>
+            <h2 className="font-display font-semibold text-lg text-ink-900 mb-1">Reset {trainer.full_name}'s password</h2>
+            <p className="text-sm text-ink-300 mb-4">This overrides their current password immediately.</p>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <input
+                type="text"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="New password (min 8 characters)"
+                className="w-full border border-surface-border rounded-xl px-4 py-3 text-[15px] outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              />
+              {error && <p className="text-status-fail text-sm">{error}</p>}
+              <div className="flex gap-3">
+                <button type="button" onClick={onClose} className="flex-1 bg-surface-muted text-ink-700 rounded-xl py-3 font-medium text-[15px]">
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 bg-brand-700 text-white rounded-xl py-3 font-medium text-[15px] hover:bg-brand-600 transition disabled:opacity-60"
+                >
+                  {loading ? 'Saving…' : 'Reset'}
+                </button>
+              </div>
+            </form>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const [tab, setTab] = useState<'trainers' | 'devices'>('trainers');
   const [trainers, setTrainers] = useState<TrainerRow[]>([]);
@@ -40,6 +117,7 @@ export default function AdminDashboard() {
   const [showRegisterDevice, setShowRegisterDevice] = useState(false);
   const [confirmRemoveTrainer, setConfirmRemoveTrainer] = useState<TrainerRow | null>(null);
   const [confirmRemoveDevice, setConfirmRemoveDevice] = useState<DeviceRow | null>(null);
+  const [resetPasswordTrainer, setResetPasswordTrainer] = useState<TrainerRow | null>(null);
   const { logout } = useAuth();
   const navigate = useNavigate();
 
@@ -139,6 +217,13 @@ export default function AdminDashboard() {
               </div>
               <span className="text-xs text-ink-500 shrink-0">{t.trainee_count} trainee{t.trainee_count === 1 ? '' : 's'}</span>
               <button
+                onClick={() => setResetPasswordTrainer(t)}
+                className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-ink-300 hover:text-brand-700 hover:bg-brand-50 transition"
+                aria-label={`Reset ${t.full_name}'s password`}
+              >
+                <KeyIcon />
+              </button>
+              <button
                 onClick={() => setConfirmRemoveTrainer(t)}
                 className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-ink-300 hover:text-status-fail hover:bg-status-failBg transition"
                 aria-label={`Remove ${t.full_name}`}
@@ -194,12 +279,17 @@ export default function AdminDashboard() {
         <RegisterPersonModal
           title="Register a trainer"
           emailPlaceholder="trainer@institution.edu"
+          includePassword
           onClose={() => setShowRegisterTrainer(false)}
-          onSubmit={async (email, fullName) => {
-            await api.post('/admin/trainers', { email, fullName });
+          onSubmit={async (email, fullName, password) => {
+            await api.post('/admin/trainers', { email, fullName, password });
             loadTrainers();
           }}
         />
+      )}
+
+      {resetPasswordTrainer && (
+        <ResetPasswordModal trainer={resetPasswordTrainer} onClose={() => setResetPasswordTrainer(null)} />
       )}
 
       {showRegisterDevice && (

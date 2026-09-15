@@ -9,17 +9,20 @@ function generateTempPassword() {
   return `${part()}-${part()}`;
 }
 
-/** Admin registers a trainer (trainer then signs in with email + this password) */
+/** Admin registers a trainer. If `password` is given, that's set directly
+ * (so you don't depend on email delivery working) - otherwise a random
+ * temp password is generated and emailed, same as before. */
 async function createTrainer(req, res, next) {
   try {
-    const { email, fullName } = req.body;
+    const { email, fullName, password } = req.body;
     if (!email || !fullName) return res.status(400).json({ error: 'email and fullName are required' });
+    if (password && password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
 
     const { rows: existing } = await db.query('SELECT * FROM users WHERE email = $1', [email]);
     const existingUser = existing[0];
 
-    const tempPassword = generateTempPassword();
-    const passwordHash = await bcrypt.hash(tempPassword, 10);
+    const finalPassword = password || generateTempPassword();
+    const passwordHash = await bcrypt.hash(finalPassword, 10);
 
     if (existingUser) {
       // Same reasoning as re-registering a removed trainee: deactivating a
@@ -35,10 +38,19 @@ async function createTrainer(req, res, next) {
         [existingUser.id, passwordHash, fullName]
       );
 
-      const delivered = await sendTrainerWelcomeEmail(email, fullName, tempPassword);
+      const delivered = password ? false : await sendTrainerWelcomeEmail(email, fullName, finalPassword);
       return res.status(200).json({
         trainer: reactivated[0],
-        message: delivered ? 'Trainer re-registered and credentials emailed' : 'Trainer re-registered (email delivery not configured)',
+        // Only hand the plaintext password back in the response when the
+        // admin chose to set it themselves - it's already theirs to know.
+        // The auto-generated case never returns it over the API; it only
+        // ever goes out by email (or the server log as a last resort).
+        password: password ? finalPassword : undefined,
+        message: password
+          ? 'Trainer re-registered with the password you set'
+          : delivered
+            ? 'Trainer re-registered and credentials emailed'
+            : 'Trainer re-registered (email delivery not configured)',
       });
     }
 
@@ -48,14 +60,36 @@ async function createTrainer(req, res, next) {
       [email, passwordHash, fullName]
     );
 
-    const delivered = await sendTrainerWelcomeEmail(email, fullName, tempPassword);
+    const delivered = password ? false : await sendTrainerWelcomeEmail(email, fullName, finalPassword);
 
     res.status(201).json({
       trainer: rows[0],
-      message: delivered
-        ? 'Trainer created and credentials emailed'
-        : 'Trainer created (email delivery not configured on this server - temp password logged server-side)',
+      password: password ? finalPassword : undefined,
+      message: password
+        ? 'Trainer created with the password you set'
+        : delivered
+          ? 'Trainer created and credentials emailed'
+          : 'Trainer created (email delivery not configured on this server - temp password logged server-side)',
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** Admin resets a trainer's password directly (no need for the old one) */
+async function resetTrainerPassword(req, res, next) {
+  try {
+    const { trainerId } = req.params;
+    const { password } = req.body;
+    if (!password || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const { rows } = await db.query(
+      `UPDATE users SET password_hash = $2 WHERE id = $1 AND role = 'trainer' RETURNING id`,
+      [trainerId, passwordHash]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Trainer not found' });
+    res.status(204).end();
   } catch (err) {
     next(err);
   }
@@ -199,6 +233,7 @@ module.exports = {
   createTrainer,
   listTrainers,
   deactivateTrainer,
+  resetTrainerPassword,
   createDevice,
   listDevices,
   assignDevice,

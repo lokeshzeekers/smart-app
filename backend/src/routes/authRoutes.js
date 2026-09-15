@@ -1,6 +1,7 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
-const { requestOtp, verifyOtp, trainerLogin } = require('../controllers/authController');
+const { requestOtp, verifyOtp, trainerLogin, changeMyPassword } = require('../controllers/authController');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -9,5 +10,6 @@ const otpLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 5, message: { erro
 router.post('/otp/request', otpLimiter, requestOtp);
 router.post('/otp/verify', verifyOtp);
 router.post('/trainer/login', trainerLogin);
+router.patch('/me/password', requireAuth, changeMyPassword);
 
 module.exports = router;

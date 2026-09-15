@@ -119,6 +119,9 @@ async function trainerLogin(req, res, next) {
     if (!user || !user.password_hash) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+    if (!user.is_active) {
+      return res.status(403).json({ error: 'This account has been deactivated.' });
+    }
 
     const match = await bcrypt.compare(password, user.password_hash);
     if (!match) return res.status(401).json({ error: 'Invalid credentials' });
@@ -129,9 +132,33 @@ async function trainerLogin(req, res, next) {
   }
 }
 
+/** Self-service password change for a logged-in trainer/admin - requires
+ * knowing the current password, unlike the admin's reset-a-trainer's-
+ * password endpoint which is an override for when they've lost it. */
+async function changeMyPassword(req, res, next) {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) return res.status(400).json({ error: 'currentPassword and newPassword are required' });
+    if (newPassword.length < 8) return res.status(400).json({ error: 'New password must be at least 8 characters' });
+
+    const { rows } = await db.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
+    const user = rows[0];
+    if (!user || !user.password_hash) return res.status(400).json({ error: 'This account does not use password login' });
+
+    const match = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!match) return res.status(401).json({ error: 'Current password is incorrect' });
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await db.query('UPDATE users SET password_hash = $2 WHERE id = $1', [req.user.id, newHash]);
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+}
+
 function sanitize(user) {
   const { password_hash, aadhaar_ref_token, ...safe } = user;
   return safe;
 }
 
-module.exports = { requestOtp, verifyOtp, trainerLogin };
+module.exports = { requestOtp, verifyOtp, trainerLogin, changeMyPassword };
