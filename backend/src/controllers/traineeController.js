@@ -143,11 +143,19 @@ async function exportMyRecords(req, res, next) {
   }
 }
 
-/** Active manikins available to pick from when starting a session */
+/** Active manikins available to pick from when starting a session -
+ * either explicitly assigned to this trainee's own trainer, or unassigned
+ * (shared/no trainer set, visible to everyone). */
 async function listDevices(req, res, next) {
   try {
+    const { rows: meRows } = await db.query(`SELECT trainer_id FROM users WHERE id = $1`, [req.user.id]);
+    const trainerId = meRows[0]?.trainer_id || null;
+
     const { rows } = await db.query(
-      `SELECT id, device_uid, label FROM devices WHERE is_active = true ORDER BY label`
+      `SELECT id, device_uid, label FROM devices
+       WHERE is_active = true AND (assigned_trainer_id IS NULL OR assigned_trainer_id = $1)
+       ORDER BY label`,
+      [trainerId]
     );
     res.json({ devices: rows });
   } catch (err) {

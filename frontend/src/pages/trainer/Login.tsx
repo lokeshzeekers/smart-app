@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 export default function TrainerLogin() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -52,14 +53,34 @@ export default function TrainerLogin() {
         </div>
         <div>
           <label className="text-sm text-ink-500 mb-1.5 block">Password</label>
-          <input
-            type="password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
-            className="w-full border border-surface-border rounded-xl px-4 py-3.5 text-[15px] outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-          />
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full border border-surface-border rounded-xl px-4 py-3.5 pr-11 text-[15px] outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-ink-300 hover:text-ink-500"
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              tabIndex={-1}
+            >
+              {showPassword ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M3 3l18 18M10.6 10.7a2.5 2.5 0 003.5 3.5M6.6 6.7C4.5 8.1 3 10 3 12c0 0 3.5 6.5 9 6.5 1.7 0 3.2-.5 4.4-1.3M9.6 5.2A10.9 10.9 0 0112 5c5.5 0 9 6.5 9 6.5-.5.9-1.3 2-2.3 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M3 12s3.5-6.5 9-6.5S21 12 21 12s-3.5 6.5-9 6.5S3 12 3 12z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                  <circle cx="12" cy="12" r="2.5" stroke="currentColor" strokeWidth="1.6"/>
+                </svg>
+              )}
+            </button>
+          </div>
         </div>
         {error && <p className="text-status-fail text-sm">{error}</p>}
         <button

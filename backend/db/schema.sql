@@ -56,15 +56,18 @@ CREATE TABLE otp_codes (
 -- ESP32 Manikin Devices
 -- ---------------------------------------------------------------------
 CREATE TABLE devices (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     device_uid      VARCHAR(80) NOT NULL UNIQUE,   -- burned-in ESP32 chip id
     label           VARCHAR(120),
     institution_id  UUID REFERENCES institutions(id) ON DELETE SET NULL,
+    assigned_trainer_id UUID REFERENCES users(id) ON DELETE SET NULL, -- NULL = shared/unassigned, visible to every trainee
     api_key_hash    VARCHAR(255) NOT NULL,          -- device auth, rotate-able
     last_seen_at    TIMESTAMPTZ,
     is_active       BOOLEAN NOT NULL DEFAULT true,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX idx_devices_trainer ON devices(assigned_trainer_id);
 
 -- ---------------------------------------------------------------------
 -- The 11 fixed procedure steps (seeded once, referenced everywhere)

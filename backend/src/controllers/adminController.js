@@ -15,11 +15,32 @@ async function createTrainer(req, res, next) {
     const { email, fullName } = req.body;
     if (!email || !fullName) return res.status(400).json({ error: 'email and fullName are required' });
 
-    const { rows: existing } = await db.query('SELECT id FROM users WHERE email = $1', [email]);
-    if (existing.length > 0) return res.status(409).json({ error: 'A user with this email already exists' });
+    const { rows: existing } = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+    const existingUser = existing[0];
 
     const tempPassword = generateTempPassword();
     const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+    if (existingUser) {
+      // Same reasoning as re-registering a removed trainee: deactivating a
+      // trainer just hides them from the roster and blocks login, so
+      // "delete" is reversible by re-registering the same email.
+      if (existingUser.role !== 'trainer' || existingUser.is_active) {
+        return res.status(409).json({ error: 'A user with this email already exists' });
+      }
+
+      const { rows: reactivated } = await db.query(
+        `UPDATE users SET is_active = true, password_hash = $2, full_name = $3
+         WHERE id = $1 RETURNING id, email, full_name, role, created_at`,
+        [existingUser.id, passwordHash, fullName]
+      );
+
+      const delivered = await sendTrainerWelcomeEmail(email, fullName, tempPassword);
+      return res.status(200).json({
+        trainer: reactivated[0],
+        message: delivered ? 'Trainer re-registered and credentials emailed' : 'Trainer re-registered (email delivery not configured)',
+      });
+    }
 
     const { rows } = await db.query(
       `INSERT INTO users (email, password_hash, full_name, role, is_verified)
@@ -40,15 +61,15 @@ async function createTrainer(req, res, next) {
   }
 }
 
-/** List all trainers with a rollup of how many trainees each has registered */
+/** Active trainers, with a rollup of how many trainees each has registered */
 async function listTrainers(req, res, next) {
   try {
     const { rows } = await db.query(
       `SELECT t.id, t.email, t.full_name, t.created_at,
               count(tr.id)::int AS trainee_count
        FROM users t
-       LEFT JOIN users tr ON tr.trainer_id = t.id AND tr.role = 'trainee'
-       WHERE t.role = 'trainer'
+       LEFT JOIN users tr ON tr.trainer_id = t.id AND tr.role = 'trainee' AND tr.is_active = true
+       WHERE t.role = 'trainer' AND t.is_active = true
        GROUP BY t.id
        ORDER BY t.created_at DESC`
     );
@@ -58,10 +79,18 @@ async function listTrainers(req, res, next) {
   }
 }
 
+/** "Delete" a trainer: deactivates rather than hard-deletes. Their
+ * trainees' trainer_id is left pointing at them (not wiped) so re-
+ * registering the same email restores the whole relationship; a hard
+ * delete would SET NULL every one of those trainees' trainer_id instead. */
 async function deactivateTrainer(req, res, next) {
   try {
     const { trainerId } = req.params;
-    await db.query(`UPDATE users SET is_active = false WHERE id = $1 AND role = 'trainer'`, [trainerId]);
+    const { rows } = await db.query(
+      `UPDATE users SET is_active = false WHERE id = $1 AND role = 'trainer' RETURNING id`,
+      [trainerId]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Trainer not found' });
     res.status(204).end();
   } catch (err) {
     next(err);
@@ -72,22 +101,32 @@ async function deactivateTrainer(req, res, next) {
  * Admin registers a physical manikin. Generates a device_uid + a plaintext
  * API key that is shown exactly once (only the bcrypt hash is stored) -
  * these two values get flashed into the ESP32 firmware so it can
- * authenticate itself, same shape as backend/.env.example describes for
- * the x-device-id / x-device-key headers.
+ * authenticate itself. Optionally assigned to a trainer right away -
+ * unassigned devices are visible to every trainee, assigned ones only to
+ * that trainer's own trainees.
  */
 async function createDevice(req, res, next) {
   try {
-    const { label } = req.body;
+    const { label, assignedTrainerId } = req.body;
     if (!label) return res.status(400).json({ error: 'label is required' });
+
+    if (assignedTrainerId) {
+      const { rows: trainerCheck } = await db.query(
+        `SELECT id FROM users WHERE id = $1 AND role = 'trainer' AND is_active = true`,
+        [assignedTrainerId]
+      );
+      if (trainerCheck.length === 0) return res.status(400).json({ error: 'assignedTrainerId is not an active trainer' });
+    }
 
     const deviceUid = `SMART-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
     const apiKey = crypto.randomBytes(24).toString('base64url');
     const apiKeyHash = await bcrypt.hash(apiKey, 10);
 
     const { rows } = await db.query(
-      `INSERT INTO devices (device_uid, label, api_key_hash) VALUES ($1, $2, $3)
+      `INSERT INTO devices (device_uid, label, api_key_hash, assigned_trainer_id)
+       VALUES ($1, $2, $3, $4)
        RETURNING id, device_uid, label, created_at`,
-      [deviceUid, label, apiKeyHash]
+      [deviceUid, label, apiKeyHash, assignedTrainerId || null]
     );
 
     res.status(201).json({
@@ -100,10 +139,16 @@ async function createDevice(req, res, next) {
   }
 }
 
+/** Active manikins, with which trainer (if any) they're assigned to */
 async function listDevices(req, res, next) {
   try {
     const { rows } = await db.query(
-      `SELECT id, device_uid, label, last_seen_at, is_active, created_at FROM devices ORDER BY created_at DESC`
+      `SELECT d.id, d.device_uid, d.label, d.last_seen_at, d.is_active, d.created_at,
+              d.assigned_trainer_id, t.full_name AS assigned_trainer_name
+       FROM devices d
+       LEFT JOIN users t ON t.id = d.assigned_trainer_id
+       WHERE d.is_active = true
+       ORDER BY d.created_at DESC`
     );
     res.json({ devices: rows });
   } catch (err) {
@@ -111,14 +156,51 @@ async function listDevices(req, res, next) {
   }
 }
 
-async function deactivateDevice(req, res, next) {
+/** Assign (or unassign, with trainerId: null) a manikin to a trainer */
+async function assignDevice(req, res, next) {
   try {
     const { deviceId } = req.params;
-    await db.query(`UPDATE devices SET is_active = false WHERE id = $1`, [deviceId]);
+    const { trainerId } = req.body;
+
+    if (trainerId) {
+      const { rows: trainerCheck } = await db.query(
+        `SELECT id FROM users WHERE id = $1 AND role = 'trainer' AND is_active = true`,
+        [trainerId]
+      );
+      if (trainerCheck.length === 0) return res.status(400).json({ error: 'trainerId is not an active trainer' });
+    }
+
+    const { rows } = await db.query(
+      `UPDATE devices SET assigned_trainer_id = $2 WHERE id = $1 RETURNING id`,
+      [deviceId, trainerId || null]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Device not found' });
     res.status(204).end();
   } catch (err) {
     next(err);
   }
 }
 
-module.exports = { createTrainer, listTrainers, deactivateTrainer, createDevice, listDevices, deactivateDevice };
+/** "Delete" a manikin: deactivates rather than hard-deletes, since past
+ * sessions reference device_id (ON DELETE SET NULL) and a real delete
+ * would strip that link from historical training records. */
+async function deactivateDevice(req, res, next) {
+  try {
+    const { deviceId } = req.params;
+    const { rows } = await db.query(`UPDATE devices SET is_active = false WHERE id = $1 RETURNING id`, [deviceId]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Device not found' });
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = {
+  createTrainer,
+  listTrainers,
+  deactivateTrainer,
+  createDevice,
+  listDevices,
+  assignDevice,
+  deactivateDevice,
+};

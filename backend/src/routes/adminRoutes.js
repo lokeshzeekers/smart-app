@@ -1,16 +1,25 @@
 const express = require('express');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { createTrainer, listTrainers, deactivateTrainer, createDevice, listDevices, deactivateDevice } = require('../controllers/adminController');
+const {
+  createTrainer,
+  listTrainers,
+  deactivateTrainer,
+  createDevice,
+  listDevices,
+  assignDevice,
+  deactivateDevice,
+} = require('../controllers/adminController');
 
 const router = express.Router();
 router.use(requireAuth, requireRole('admin'));
 
 router.post('/trainers', createTrainer);
 router.get('/trainers', listTrainers);
-router.post('/trainers/:trainerId/deactivate', deactivateTrainer);
+router.delete('/trainers/:trainerId', deactivateTrainer);
 
 router.post('/devices', createDevice);
 router.get('/devices', listDevices);
-router.post('/devices/:deviceId/deactivate', deactivateDevice);
+router.patch('/devices/:deviceId/assign', assignDevice);
+router.delete('/devices/:deviceId', deactivateDevice);
 
 module.exports = router;
