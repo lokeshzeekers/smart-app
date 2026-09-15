@@ -26,7 +26,7 @@ function titleCase(str) {
 
 const COLUMNS = [
   { key: 'mode', label: 'Mode', width: 15, fmt: titleCase },
-  { key: 'trial_no', label: 'Trial #', width: 10 },
+  { key: 'trial_no', label: 'Trial', width: 10 },
   { key: 'status', label: 'Status', width: 13, fmt: titleCase },
   { key: 'started_at', label: 'Started', width: 22, fmt: toIst },
   { key: 'completed_at', label: 'Completed', width: 22, fmt: toIst },
