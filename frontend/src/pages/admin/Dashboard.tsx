@@ -72,9 +72,18 @@ export default function AdminDashboard() {
     loadDevices();
   }
 
+  const [assignError, setAssignError] = useState('');
+
   async function handleAssign(deviceId: string, trainerId: string) {
-    await api.patch(`/admin/devices/${deviceId}/assign`, { trainerId: trainerId || null });
-    loadDevices();
+    setAssignError('');
+    try {
+      await api.patch(`/admin/devices/${deviceId}/assign`, { trainerId: trainerId || null });
+      await loadDevices();
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to assign device:', err);
+      setAssignError(err.response?.data?.error || 'Failed to assign this manikin - check the backend log.');
+    }
   }
 
   return (
@@ -142,6 +151,7 @@ export default function AdminDashboard() {
       ) : (
         <div className="px-5 space-y-3">
           {loading && <p className="text-ink-300 text-sm text-center py-8">Loading manikins…</p>}
+          {assignError && <p className="text-status-fail text-sm bg-status-failBg rounded-xl px-4 py-2.5">{assignError}</p>}
           {!loading && devices.length === 0 && (
             <p className="text-ink-300 text-sm text-center py-8">No manikins registered yet.</p>
           )}

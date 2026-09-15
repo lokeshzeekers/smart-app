@@ -44,15 +44,24 @@ export default function TraineePerformance() {
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [savingDevice, setSavingDevice] = useState(false);
+  const [devicesError, setDevicesError] = useState('');
 
   function load() {
     setLoading(true);
+    setDevicesError('');
     return Promise.all([
       api.get(`/trainer/trainees/${traineeId}/performance`).then(({ data }) => {
         setTrainee(data.trainee);
         setSessions(data.sessions);
       }),
-      api.get('/trainer/devices').then(({ data }) => setDevices(data.devices)),
+      api
+        .get('/trainer/devices')
+        .then(({ data }) => setDevices(data.devices))
+        .catch((err) => {
+          // eslint-disable-next-line no-console
+          console.error('Failed to load your devices:', err);
+          setDevicesError('Could not load your manikins - check your connection and reload.');
+        }),
     ]).finally(() => setLoading(false));
   }
 
@@ -70,11 +79,18 @@ export default function TraineePerformance() {
     }
   }
 
+  const [assignError, setAssignError] = useState('');
+
   async function handleDeviceChange(deviceId: string) {
     setSavingDevice(true);
+    setAssignError('');
     try {
       await api.patch(`/trainer/trainees/${traineeId}/device`, { deviceId: deviceId || null });
       await load();
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to assign device to trainee:', err);
+      setAssignError(err.response?.data?.error || 'Failed to save - check your connection and try again.');
     } finally {
       setSavingDevice(false);
     }
@@ -127,7 +143,13 @@ export default function TraineePerformance() {
                 </option>
               ))}
             </select>
-            {devices.length === 0 && (
+            {devicesError && (
+              <p className="text-xs text-status-fail bg-status-failBg rounded-lg px-3 py-2 mt-1.5">{devicesError}</p>
+            )}
+            {assignError && (
+              <p className="text-xs text-status-fail bg-status-failBg rounded-lg px-3 py-2 mt-1.5">{assignError}</p>
+            )}
+            {!devicesError && devices.length === 0 && (
               <p className="text-xs text-ink-300 mt-1.5">
                 No manikins available to you yet — ask an admin to assign one to you.
               </p>

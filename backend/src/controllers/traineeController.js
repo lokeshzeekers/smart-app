@@ -7,6 +7,30 @@ async function startSession(req, res, next) {
     const { mode, deviceId, trialNo } = req.body; // mode: coach|check|certification
     const traineeId = req.user.id;
 
+    // Reuse an already-open session for this mode instead of creating a
+    // new row every time - previously, just navigating to Coach/Check/
+    // Certification from the bottom nav (which has no sessionId to pass
+    // along) started a brand new session on every single visit, flooding
+    // session history with near-empty duplicates. A session only "ends"
+    // when the manikin reports completion (or there simply isn't one
+    // connected yet, in which case this keeps returning that same open
+    // session across visits, which is what you want while testing).
+    const { rows: openRows } = await db.query(
+      `SELECT * FROM sessions WHERE trainee_id = $1 AND mode = $2 AND completed_at IS NULL
+       ORDER BY started_at DESC LIMIT 1`,
+      [traineeId, mode]
+    );
+
+    if (openRows.length > 0) {
+      const existing = openRows[0];
+      // Keep the device link current if a different one was picked since
+      if (deviceId && deviceId !== existing.device_id) {
+        await db.query(`UPDATE sessions SET device_id = $2 WHERE id = $1`, [existing.id, deviceId]);
+        existing.device_id = deviceId;
+      }
+      return res.status(200).json({ session: existing });
+    }
+
     const { rows } = await db.query(
       `INSERT INTO sessions (trainee_id, device_id, institution_id, mode, trial_no)
        VALUES ($1, $2, $3, $4, COALESCE($5, 1)) RETURNING *`,
