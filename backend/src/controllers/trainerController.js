@@ -1,6 +1,6 @@
 const db = require('../config/db');
 const { sendTraineeWelcomeEmail } = require('../utils/mailer');
-const { sendCsv } = require('../utils/csv');
+const { sendRecordsReport } = require('../utils/xlsx-report');
 
 /** Manikins this trainer can actually offer their trainees: either
  * explicitly assigned to them by an admin, or left unassigned/shared. */
@@ -287,30 +287,13 @@ async function removeTrainee(req, res, next) {
   }
 }
 
-const EXPORT_COLUMNS = [
-  { key: 'mode', label: 'Mode' },
-  { key: 'trial_no', label: 'Trial #' },
-  { key: 'status', label: 'Status' },
-  { key: 'started_at', label: 'Started' },
-  { key: 'completed_at', label: 'Completed' },
-  { key: 'steps_passed', label: 'Steps Passed' },
-  { key: 'steps_total', label: 'Steps Total' },
-  { key: 'laryngoscope_lift_force', label: 'Laryngoscope Lift Force (psi)' },
-  { key: 'time_to_place_ett', label: 'Time To Place ETT (s)' },
-  { key: 'ett_location_cm', label: 'ETT Location (cm)' },
-  { key: 'total_time_to_intubate', label: 'Total Time To Intubate (s)' },
-  { key: 'smart_score', label: 'SMArT Score' },
-  { key: 'ai_suggestion', label: 'AI Suggestion' },
-  { key: 'trainer_final_verdict', label: 'Trainer Verdict' },
-];
-
-/** Trainer downloads one of their trainees' session/evaluation history as CSV */
+/** Trainer downloads one of their trainees' session/evaluation history as a formatted .xlsx report */
 async function exportTraineeRecords(req, res, next) {
   try {
     const { traineeId } = req.params;
 
     const { rows: traineeRows } = await db.query(
-      `SELECT id, full_name FROM users
+      `SELECT id, full_name, email FROM users
        WHERE id = $1 AND role = 'trainee' AND (trainer_id = $2 OR $3 = true)`,
       [traineeId, req.user.id, req.user.role === 'admin']
     );
@@ -329,8 +312,15 @@ async function exportTraineeRecords(req, res, next) {
       [traineeId]
     );
 
+    const { rows: reviewerRows } = await db.query(`SELECT full_name FROM users WHERE id = $1`, [req.user.id]);
     const safeName = traineeRows[0].full_name.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
-    sendCsv(res, `smart-records-${safeName}.csv`, rows, EXPORT_COLUMNS);
+
+    await sendRecordsReport(res, `smart-records-${safeName}.xlsx`, {
+      subjectName: traineeRows[0].full_name,
+      subjectEmail: traineeRows[0].email,
+      generatedFor: reviewerRows[0] ? `by ${reviewerRows[0].full_name}` : undefined,
+      rows,
+    });
   } catch (err) {
     next(err);
   }

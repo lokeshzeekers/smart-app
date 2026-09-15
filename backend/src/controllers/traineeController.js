@@ -1,5 +1,5 @@
 const db = require('../config/db');
-const { sendCsv } = require('../utils/csv');
+const { sendRecordsReport } = require('../utils/xlsx-report');
 
 /** Trainee starts a new attempt on the manikin (Coach / Check / Certification) */
 async function startSession(req, res, next) {
@@ -129,26 +129,12 @@ async function getMySummary(req, res, next) {
   }
 }
 
-const EXPORT_COLUMNS = [
-  { key: 'mode', label: 'Mode' },
-  { key: 'trial_no', label: 'Trial #' },
-  { key: 'status', label: 'Status' },
-  { key: 'started_at', label: 'Started' },
-  { key: 'completed_at', label: 'Completed' },
-  { key: 'steps_passed', label: 'Steps Passed' },
-  { key: 'steps_total', label: 'Steps Total' },
-  { key: 'laryngoscope_lift_force', label: 'Laryngoscope Lift Force (psi)' },
-  { key: 'time_to_place_ett', label: 'Time To Place ETT (s)' },
-  { key: 'ett_location_cm', label: 'ETT Location (cm)' },
-  { key: 'total_time_to_intubate', label: 'Total Time To Intubate (s)' },
-  { key: 'smart_score', label: 'SMArT Score' },
-  { key: 'ai_suggestion', label: 'AI Suggestion' },
-  { key: 'trainer_final_verdict', label: 'Trainer Verdict' },
-];
-
-/** Download my own session/evaluation history as CSV */
+/** Download my own session/evaluation history as a formatted .xlsx report */
 async function exportMyRecords(req, res, next) {
   try {
+    const { rows: meRows } = await db.query(`SELECT full_name, email FROM users WHERE id = $1`, [req.user.id]);
+    const me = meRows[0] || {};
+
     const { rows } = await db.query(
       `SELECT s.mode, s.trial_no, s.status, s.started_at, s.completed_at,
               sm.steps_passed, sm.steps_total, sm.laryngoscope_lift_force, sm.time_to_place_ett,
@@ -161,7 +147,11 @@ async function exportMyRecords(req, res, next) {
        ORDER BY s.started_at DESC`,
       [req.user.id]
     );
-    sendCsv(res, `smart-records-${req.user.id}.csv`, rows, EXPORT_COLUMNS);
+    await sendRecordsReport(res, `smart-records-${req.user.id}.xlsx`, {
+      subjectName: me.full_name || 'Trainee',
+      subjectEmail: me.email,
+      rows,
+    });
   } catch (err) {
     next(err);
   }

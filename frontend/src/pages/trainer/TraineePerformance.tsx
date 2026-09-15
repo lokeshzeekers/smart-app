@@ -73,7 +73,7 @@ export default function TraineePerformance() {
   async function handleDownload() {
     setDownloading(true);
     try {
-      await downloadFile(`/trainer/trainees/${traineeId}/records/export`, 'smart-records.csv');
+      await downloadFile(`/trainer/trainees/${traineeId}/records/export`, 'smart-records.xlsx');
     } finally {
       setDownloading(false);
     }
@@ -124,7 +124,7 @@ export default function TraineePerformance() {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                 <path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
-              {downloading ? 'Preparing…' : 'CSV'}
+              {downloading ? 'Preparing…' : 'Excel'}
             </button>
           </div>
 

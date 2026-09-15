@@ -37,7 +37,7 @@ export default function Certification() {
   async function handleDownload() {
     setDownloading(true);
     try {
-      await downloadFile('/trainee/records/export', 'smart-records.csv');
+      await downloadFile('/trainee/records/export', 'smart-records.xlsx');
     } finally {
       setDownloading(false);
     }
@@ -55,7 +55,7 @@ export default function Certification() {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
             <path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-          {downloading ? 'Preparing…' : 'Download my records (CSV)'}
+          {downloading ? 'Preparing…' : 'Download my records (Excel)'}
         </button>
 
         {starting ? (
