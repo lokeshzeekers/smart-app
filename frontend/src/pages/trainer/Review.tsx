@@ -30,6 +30,7 @@ export default function TrainerReview() {
   if (!data) return <p className="text-center text-ink-300 text-sm py-16">Loading…</p>;
 
   const { evaluation, steps, metrics } = data;
+  const alreadyReviewed = evaluation.review_status !== 'pending';
 
   return (
     <div className="min-h-screen max-w-md mx-auto pb-10">
@@ -51,7 +52,10 @@ export default function TrainerReview() {
           <VerdictBadge verdict={evaluation.ai_suggestion} />
         </div>
         {evaluation.ai_notes && (
-          <p className="text-sm text-ink-500 bg-surface-muted rounded-xl px-4 py-3">{evaluation.ai_notes}</p>
+          <div>
+            <p className="text-xs text-ink-300 mb-1">Coaching notes</p>
+            <p className="text-sm text-ink-500 bg-surface-muted rounded-xl px-4 py-3">{evaluation.ai_notes}</p>
+          </div>
         )}
 
         <div className="bg-surface-card rounded-2xl px-5 shadow-card">
@@ -69,37 +73,54 @@ export default function TrainerReview() {
           <span className="text-right font-medium">{metrics?.total_time_to_intubate ?? '—'}s</span>
         </div>
 
-        <textarea
-          value={comments}
-          onChange={(e) => setComments(e.target.value)}
-          placeholder="Add review comments (optional)"
-          rows={3}
-          className="w-full border border-surface-border rounded-xl px-4 py-3 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-        />
+        {alreadyReviewed ? (
+          <div className="bg-surface-card rounded-2xl p-4 shadow-card space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-ink-500">Trainer's final verdict</span>
+              {evaluation.trainer_final_verdict && <VerdictBadge verdict={evaluation.trainer_final_verdict} />}
+            </div>
+            {evaluation.trainer_comments && (
+              <p className="text-sm text-ink-500 bg-surface-muted rounded-xl px-4 py-3">{evaluation.trainer_comments}</p>
+            )}
+            {evaluation.reviewed_at && (
+              <p className="text-xs text-ink-300">Reviewed {new Date(evaluation.reviewed_at).toLocaleString()}</p>
+            )}
+          </div>
+        ) : (
+          <>
+            <textarea
+              value={comments}
+              onChange={(e) => setComments(e.target.value)}
+              placeholder="Add review comments (optional)"
+              rows={3}
+              className="w-full border border-surface-border rounded-xl px-4 py-3 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+            />
 
-        <div className="grid grid-cols-3 gap-2 pt-1">
-          <button
-            disabled={submitting}
-            onClick={() => decide('pass')}
-            className="py-3 rounded-xl bg-status-passBg text-status-pass font-medium text-sm"
-          >
-            Pass
-          </button>
-          <button
-            disabled={submitting}
-            onClick={() => decide('bad_technique')}
-            className="py-3 rounded-xl bg-status-badBg text-status-bad font-medium text-sm"
-          >
-            Bad Technique
-          </button>
-          <button
-            disabled={submitting}
-            onClick={() => decide('fail')}
-            className="py-3 rounded-xl bg-status-failBg text-status-fail font-medium text-sm"
-          >
-            Fail
-          </button>
-        </div>
+            <div className="grid grid-cols-3 gap-2 pt-1">
+              <button
+                disabled={submitting}
+                onClick={() => decide('pass')}
+                className="py-3 rounded-xl bg-status-passBg text-status-pass font-medium text-sm"
+              >
+                Pass
+              </button>
+              <button
+                disabled={submitting}
+                onClick={() => decide('bad_technique')}
+                className="py-3 rounded-xl bg-status-badBg text-status-bad font-medium text-sm"
+              >
+                Bad Technique
+              </button>
+              <button
+                disabled={submitting}
+                onClick={() => decide('fail')}
+                className="py-3 rounded-xl bg-status-failBg text-status-fail font-medium text-sm"
+              >
+                Fail
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

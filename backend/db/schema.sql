@@ -69,6 +69,12 @@ CREATE TABLE devices (
 
 CREATE INDEX idx_devices_trainer ON devices(assigned_trainer_id);
 
+-- Added after devices exists: which manikin (if any) a trainee's trainer
+-- has pinned them to specifically, narrower than "any of my trainer's
+-- devices".
+ALTER TABLE users ADD COLUMN assigned_device_id UUID REFERENCES devices(id) ON DELETE SET NULL;
+CREATE INDEX idx_users_assigned_device ON users(assigned_device_id);
+
 -- ---------------------------------------------------------------------
 -- The 11 fixed procedure steps (seeded once, referenced everywhere)
 -- ---------------------------------------------------------------------

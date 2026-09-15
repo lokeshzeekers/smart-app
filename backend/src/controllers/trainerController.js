@@ -2,6 +2,50 @@ const db = require('../config/db');
 const { sendTraineeWelcomeEmail } = require('../utils/mailer');
 const { sendCsv } = require('../utils/csv');
 
+/** Manikins this trainer can actually offer their trainees: either
+ * explicitly assigned to them by an admin, or left unassigned/shared. */
+async function listMyDevices(req, res, next) {
+  try {
+    const { rows } = await db.query(
+      `SELECT id, device_uid, label FROM devices
+       WHERE is_active = true AND (assigned_trainer_id IS NULL OR assigned_trainer_id = $1)
+       ORDER BY label`,
+      [req.user.id]
+    );
+    res.json({ devices: rows });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** Pin (or unpin, with deviceId: null) one of this trainer's own trainees
+ * to a specific manikin from the trainer's own pool. */
+async function assignTraineeDevice(req, res, next) {
+  try {
+    const { traineeId } = req.params;
+    const { deviceId } = req.body;
+
+    const { rows: traineeCheck } = await db.query(
+      `SELECT id FROM users WHERE id = $1 AND role = 'trainee' AND trainer_id = $2`,
+      [traineeId, req.user.id]
+    );
+    if (traineeCheck.length === 0) return res.status(404).json({ error: 'Trainee not found in your roster' });
+
+    if (deviceId) {
+      const { rows: deviceCheck } = await db.query(
+        `SELECT id FROM devices WHERE id = $1 AND is_active = true AND (assigned_trainer_id IS NULL OR assigned_trainer_id = $2)`,
+        [deviceId, req.user.id]
+      );
+      if (deviceCheck.length === 0) return res.status(400).json({ error: 'That manikin is not available to you' });
+    }
+
+    await db.query(`UPDATE users SET assigned_device_id = $2 WHERE id = $1`, [traineeId, deviceId || null]);
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+}
+
 /** Trainer registers a trainee under their own roster (email OTP login, no password) */
 async function registerTrainee(req, res, next) {
   try {
@@ -91,8 +135,10 @@ async function getTraineePerformance(req, res, next) {
     const { traineeId } = req.params;
 
     const { rows: traineeRows } = await db.query(
-      `SELECT id, full_name, email, avatar_url, created_at FROM users
-       WHERE id = $1 AND role = 'trainee' AND (trainer_id = $2 OR $3 = true)`,
+      `SELECT u.id, u.full_name, u.email, u.avatar_url, u.created_at, u.assigned_device_id, d.label AS assigned_device_label
+       FROM users u
+       LEFT JOIN devices d ON d.id = u.assigned_device_id
+       WHERE u.id = $1 AND u.role = 'trainee' AND (u.trainer_id = $2 OR $3 = true)`,
       [traineeId, req.user.id, req.user.role === 'admin']
     );
     if (traineeRows.length === 0) return res.status(404).json({ error: 'Trainee not found in your roster' });
@@ -299,4 +345,6 @@ module.exports = {
   getTraineePerformance,
   removeTrainee,
   exportTraineeRecords,
+  listMyDevices,
+  assignTraineeDevice,
 };

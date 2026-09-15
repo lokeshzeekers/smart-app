@@ -74,18 +74,29 @@ export default function TraineeHome() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [showProfile, setShowProfile] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]);
+  const [devicesLocked, setDevicesLocked] = useState(false);
+  const [devicesError, setDevicesError] = useState(false);
   const [selectedDevice, setSelectedDevice] = useState<string | null>(getSelectedDeviceId());
 
   useEffect(() => {
     api.get('/trainee/summary').then(({ data }) => setSummary(data));
-    api.get('/trainee/devices').then(({ data }) => {
-      setDevices(data.devices);
-      // Auto-pick if there's exactly one manikin and nothing chosen yet
-      if (data.devices.length === 1 && !getSelectedDeviceId()) {
-        setSelectedDeviceId(data.devices[0].id);
-        setSelectedDevice(data.devices[0].id);
-      }
-    });
+    api
+      .get('/trainee/devices')
+      .then(({ data }) => {
+        setDevices(data.devices);
+        setDevicesLocked(!!data.locked);
+        // Auto-pick if there's exactly one manikin available (locked pin,
+        // or just one in the pool) and nothing chosen yet
+        if (data.devices.length === 1) {
+          setSelectedDeviceId(data.devices[0].id);
+          setSelectedDevice(data.devices[0].id);
+        }
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error('Failed to load manikins:', err);
+        setDevicesError(true);
+      });
   }, []);
 
   function chooseDevice(id: string) {
@@ -133,9 +144,24 @@ export default function TraineeHome() {
         </div>
       )}
 
-      {devices.length > 1 && (
-        <div className="px-5 mt-4">
-          <p className="text-xs text-ink-300 mb-1.5">Manikin</p>
+      <div className="px-5 mt-4">
+        <p className="text-xs text-ink-300 mb-1.5">Manikin</p>
+        {devicesError && (
+          <p className="text-sm text-status-fail bg-status-failBg rounded-xl px-4 py-2.5">
+            Couldn't load manikins — check your connection and reload.
+          </p>
+        )}
+        {!devicesError && devices.length === 0 && (
+          <p className="text-sm text-ink-500 bg-surface-muted rounded-xl px-4 py-2.5">
+            No manikin available yet — ask your trainer to assign one.
+          </p>
+        )}
+        {!devicesError && devices.length === 1 && (
+          <p className="text-sm text-ink-700 bg-surface-card border border-surface-border rounded-xl px-4 py-2.5">
+            {devices[0].label} {devicesLocked ? '(assigned to you)' : ''}
+          </p>
+        )}
+        {!devicesError && devices.length > 1 && (
           <div className="flex gap-2 overflow-x-auto pb-1">
             {devices.map((d) => (
               <button
@@ -151,8 +177,8 @@ export default function TraineeHome() {
               </button>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       <div className="px-5 mt-4 space-y-4">
         {modes.map((m) => (

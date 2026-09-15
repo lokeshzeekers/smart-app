@@ -143,13 +143,25 @@ async function exportMyRecords(req, res, next) {
   }
 }
 
-/** Active manikins available to pick from when starting a session -
- * either explicitly assigned to this trainee's own trainer, or unassigned
- * (shared/no trainer set, visible to everyone). */
+/** Active manikins available to pick from when starting a session. If
+ * this trainee's trainer has pinned them to one specific manikin, only
+ * that one is returned (locked). Otherwise: anything explicitly assigned
+ * to their trainer, plus anything left unassigned/shared. */
 async function listDevices(req, res, next) {
   try {
-    const { rows: meRows } = await db.query(`SELECT trainer_id FROM users WHERE id = $1`, [req.user.id]);
-    const trainerId = meRows[0]?.trainer_id || null;
+    const { rows: meRows } = await db.query(
+      `SELECT trainer_id, assigned_device_id FROM users WHERE id = $1`,
+      [req.user.id]
+    );
+    const { trainer_id: trainerId, assigned_device_id: pinnedDeviceId } = meRows[0] || {};
+
+    if (pinnedDeviceId) {
+      const { rows } = await db.query(
+        `SELECT id, device_uid, label FROM devices WHERE id = $1 AND is_active = true`,
+        [pinnedDeviceId]
+      );
+      return res.json({ devices: rows, locked: rows.length > 0 });
+    }
 
     const { rows } = await db.query(
       `SELECT id, device_uid, label FROM devices
@@ -157,7 +169,7 @@ async function listDevices(req, res, next) {
        ORDER BY label`,
       [trainerId]
     );
-    res.json({ devices: rows });
+    res.json({ devices: rows, locked: false });
   } catch (err) {
     next(err);
   }

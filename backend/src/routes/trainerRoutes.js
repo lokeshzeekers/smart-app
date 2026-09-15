@@ -9,6 +9,8 @@ const {
   getTraineePerformance,
   removeTrainee,
   exportTraineeRecords,
+  listMyDevices,
+  assignTraineeDevice,
 } = require('../controllers/trainerController');
 
 const router = express.Router();
@@ -22,6 +24,9 @@ router.post('/trainees', registerTrainee);
 router.get('/trainees', listTrainees);
 router.get('/trainees/:traineeId/performance', getTraineePerformance);
 router.get('/trainees/:traineeId/records/export', exportTraineeRecords);
+router.patch('/trainees/:traineeId/device', assignTraineeDevice);
 router.delete('/trainees/:traineeId', removeTrainee);
+
+router.get('/devices', listMyDevices);
 
 module.exports = router;
