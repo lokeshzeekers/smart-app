@@ -100,7 +100,9 @@ CREATE TABLE sessions (
     trial_no        SMALLINT NOT NULL DEFAULT 1,     -- Trial 1 / Trial 2 ... (certification mode)
     status          session_status NOT NULL DEFAULT 'in_progress',
     started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    completed_at    TIMESTAMPTZ
+    completed_at    TIMESTAMPTZ,
+    laryngoscope_entered_at  TIMESTAMPTZ,   -- first moment the laryngoscope was detected in the manikin
+    intubation_completed_at  TIMESTAMPTZ    -- moment the tube reached the designated depth
 );
 
 CREATE INDEX idx_sessions_trainee ON sessions(trainee_id);
@@ -141,7 +143,7 @@ CREATE TABLE session_metrics (
     laryngoscope_lift_force NUMERIC(6,2),   -- psi
     time_to_place_ett       NUMERIC(6,2),   -- seconds
     ett_location_cm         NUMERIC(6,2),   -- cm offset from target (+/-)
-    total_time_to_intubate  NUMERIC(6,2),   -- seconds
+    total_time_to_intubate  NUMERIC(6,2),   -- seconds (laryngoscope entry -> intubation complete)
     steps_passed            SMALLINT,
     steps_total             SMALLINT NOT NULL DEFAULT 11
 );

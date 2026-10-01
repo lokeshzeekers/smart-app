@@ -1,180 +1,250 @@
 # Connecting the manikin to the SMArT backend
 
-Your current firmware runs its own WiFi Access Point and serves a local
-webpage from the ESP32 itself - it never talks to the internet. To show up
-live in the SMArT app, it needs to do three new things instead:
+The manikin firmware used to run its own WiFi Access Point and serve a local
+page; it never talked to the internet. To show up live in the SMArT app it
+now does four things:
 
-1. Join your real WiFi network (STA mode) instead of creating its own AP.
-2. Poll the backend to find out which session it should report against
-   (no keypad/display needed on the device - the trainee picks the
-   manikin from a dropdown on their phone, and the backend just tells the
-   device "here's your current job" when it asks).
-3. POST the same JSON it already builds today - to the backend instead of
-   only serving it on the local page.
+1. Joins your real WiFi network (STA mode) instead of creating its own AP.
+2. Polls the backend to find out which session it should report against
+   (the trainee picks the manikin on their phone; no keypad/display needed).
+3. POSTs live telemetry (depth, path, angle, **laryngoscope present/absent**,
+   banner text) to the backend ~3x per second.
+4. POSTs each completed procedure step, and a final `/complete` when the
+   attempt ends.
 
-## 1. New credentials to add to the firmware
+> Variable names below (`toolDetected`, `teethSafe`, `currentDepthIndex`,
+> `depthPosition`, `DESIGNATED_INDEX`, `maxDepthIndexReached`, `currentState`,
+> `IDLE`, `airFlow_slm`, ...) are taken from your existing firmware. The
+> firmware itself is not in this repo, so adjust names if yours differ.
 
-Register the device once via the admin dashboard (Manikins tab ->
-"+ Register a manikin"). You'll get two values shown ONE TIME ONLY - save
-them immediately:
+## 0. Update the backend first
+
+Fresh install: `backend/db/schema.sql` already contains everything.
+Existing database - run the incremental migration once:
+
+```bash
+psql "$DATABASE_URL" -f backend/db/migrations/005_laryngoscope_timer.sql
+```
+
+Then restart the backend and rebuild the frontend. The backend must be
+reachable from the manikin's WiFi: use your machine's LAN IP
+(e.g. `http://192.168.1.50:4000`) for bench testing, not `localhost`.
+The ESP32 code below uses plain HTTP; if production sits behind HTTPS you
+must switch to `WiFiClientSecure` (or expose an HTTP port on the LAN).
+
+## 1. Credentials
+
+Register the device in the admin dashboard (Manikins tab ->
+"+ Register a manikin"). The ID and key are shown **once** - save them.
 
 ```cpp
-const char* DEVICE_ID  = "SMART-XXXXXXXX";      // x-device-id
-const char* DEVICE_KEY = "the-generated-key";   // x-device-key
-const char* BACKEND_HOST = "http://<your-server-ip-or-domain>:4000";
+const char* DEVICE_ID    = "SMART-XXXXXXXX";     // x-device-id
+const char* DEVICE_KEY   = "the-generated-key";  // x-device-key
+const char* BACKEND_HOST = "http://192.168.1.50:4000";
 
-const char* WIFI_SSID = "YourLabWiFi";
+const char* WIFI_SSID     = "YourLabWiFi";
 const char* WIFI_PASSWORD = "YourWiFiPassword";
 ```
 
-## 2. Replace the WiFi setup in `setup()`
+## 2. WiFi in `setup()`
 
-Replace this block:
-
-```cpp
-WiFi.mode(WIFI_AP);
-WiFi.softAP(AP_SSID, AP_PASSWORD);
-```
-
-with:
+Replace `WiFi.mode(WIFI_AP); WiFi.softAP(...)` with:
 
 ```cpp
 WiFi.mode(WIFI_STA);
+WiFi.setAutoReconnect(true);
 WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 Serial.print("Connecting to WiFi");
-while (WiFi.status() != WL_CONNECTED) {
+unsigned long t0 = millis();
+while (WiFi.status() != WL_CONNECTED && millis() - t0 < 20000) {
   delay(400);
   Serial.print(".");
 }
-Serial.println();
-Serial.print("Connected, IP: ");
+Serial.println(WiFi.status() == WL_CONNECTED ? " connected" : " FAILED (will keep retrying)");
 Serial.println(WiFi.localIP());
 ```
 
-You can keep `server.begin()` and the local webpage too if you still want
-it for on-bench debugging - it's harmless to run both.
+The 20 s limit matters: a plain `while (!connected)` loop hangs the whole
+manikin (sensors included) if the router is off. `setAutoReconnect` brings
+the link back later on its own. `server.begin()` and the local page can stay
+for bench debugging.
 
-## 3. Add an HTTP helper + active-session polling
-
-Add near the top:
+## 3. Helpers (near the top of the sketch)
 
 ```cpp
 #include <HTTPClient.h>
 
 String currentSessionId = "";
+bool sessionSawActivity = false;       // set once the trainee actually starts
+uint16_t stepsSent = 0;                // bitmask, bit (n-1) = step n already sent
 unsigned long lastSessionCheck = 0;
 unsigned long lastTelemetryPush = 0;
 
-bool httpPostJson(const String& path, const String& body) {
+// Laryngoscope presence - wire this to YOUR laryngoscope sensor/flag.
+// (If your existing `toolDetected` is the laryngoscope sensor, just use it.)
+bool laryngoscopePresent = false;
+
+int httpPostJson(const String& path, const String& body) {
+  if (WiFi.status() != WL_CONNECTED) return -1;
   HTTPClient http;
+  http.setConnectTimeout(1500);   // never stall sensors for long
+  http.setTimeout(1500);
   http.begin(String(BACKEND_HOST) + path);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-id", DEVICE_ID);
   http.addHeader("x-device-key", DEVICE_KEY);
   int code = http.POST(body);
   http.end();
-  return code >= 200 && code < 300;
+  return code;
 }
 
+// returns "" on network/HTTP error, otherwise the response body
 String httpGetJson(const String& path) {
+  if (WiFi.status() != WL_CONNECTED) return "";
   HTTPClient http;
+  http.setConnectTimeout(1500);
+  http.setTimeout(1500);
   http.begin(String(BACKEND_HOST) + path);
   http.addHeader("x-device-id", DEVICE_ID);
   http.addHeader("x-device-key", DEVICE_KEY);
   int code = http.GET();
-  String body = code == 200 ? http.getString() : "";
+  String body = (code == 200) ? http.getString() : "";
   http.end();
   return body;
 }
 
+// Response is {"sessionId":"<uuid>"} or {"sessionId":null}
 void checkActiveSession() {
   String resp = httpGetJson("/api/esp32/sessions/active");
-  if (resp.length() == 0) return;
-  // crude extraction - fine for a single "sessionId" field; swap in
-  // ArduinoJson if you want this more robust
-  int start = resp.indexOf(':') + 1;
-  String val = resp.substring(start, resp.indexOf('}'));
+  if (resp.length() == 0) return;                 // network error: keep state
+  int k = resp.indexOf("\"sessionId\":");
+  if (k < 0) return;
+  String val = resp.substring(k + 12, resp.indexOf('}', k));
   val.trim();
-  if (val == "null") {
-    currentSessionId = "";
-  } else {
-    val.replace("\"", "");
-    currentSessionId = val;
+  val.replace("\"", "");
+  String newId = (val == "null") ? "" : val;
+  if (newId != currentSessionId) {                // new / changed / ended elsewhere
+    currentSessionId = newId;
+    sessionSawActivity = false;
+    stepsSent = 0;
   }
+}
+
+// Call once per completed procedure step (1..11). Safe to call every loop -
+// it only sends the first time. metric is e.g. lift force in psi for step 7.
+void pushStep(int stepNo, float metric = NAN) {
+  if (currentSessionId == "" || stepNo < 1 || stepNo > 11) return;
+  uint16_t bit = 1 << (stepNo - 1);
+  if (stepsSent & bit) return;
+  String body = "{\"stepNo\":" + String(stepNo);
+  if (!isnan(metric)) body += ",\"metricValue\":" + String(metric, 2);
+  body += "}";
+  int code = httpPostJson("/api/esp32/sessions/" + currentSessionId + "/steps", body);
+  if (code >= 200 && code < 300) stepsSent |= bit;   // retry next loop if it failed
 }
 ```
 
-## 4. Call these from `loop()`
+## 4. Call from `loop()`
 
-Right after your existing `readAllSensors(); runStateMachine();` calls,
-add:
+After your existing `readAllSensors(); runStateMachine();`:
 
 ```cpp
 unsigned long now = millis();
 
-// Find out which session to report to, every 2s while idle
-if (currentSessionId == "" && now - lastSessionCheck > 2000) {
+// Which session am I working on? 2 s while idle, 5 s while active (so the
+// device also notices if the session was ended or replaced from the app).
+if (now - lastSessionCheck > (currentSessionId == "" ? 2000UL : 5000UL)) {
   lastSessionCheck = now;
   checkActiveSession();
 }
 
-// Push the same live state your local /api/data already builds, every
-// ~300ms while a session is active
-if (currentSessionId != "" && now - lastTelemetryPush > 300) {
-  lastTelemetryPush = now;
+if (currentSessionId != "") {
+  // Trainee has really started once anything is detected
+  if (laryngoscopePresent || toolDetected || maxDepthIndexReached >= 0) sessionSawActivity = true;
 
-  String bannerType = (!teethSafe || wrongPathLatched || currentDepthIndex > DESIGNATED_INDEX)
-    ? "wrong"
-    : (currentDepthIndex == DESIGNATED_INDEX ? "complete" : "progress");
+  // Live telemetry every ~300 ms
+  if (now - lastTelemetryPush > 300) {
+    lastTelemetryPush = now;
 
-  String body = "{";
-  body += "\"toolDetected\":" + String(toolDetected ? "true" : "false") + ",";
-  body += "\"teethSafe\":" + String(teethSafe ? "true" : "false") + ",";
-  body += "\"depthCm\":" + String(currentDepthIndex >= 0 ? depthPosition[currentDepthIndex] : 0, 1) + ",";
-  body += "\"wrongPath\":" + String(wrongPathLatched ? "true" : "false") + ",";
-  body += "\"correctPath\":" + String(correctPathLatched ? "true" : "false") + ",";
-  body += "\"headAngle\":" + String(headAngle, 1) + ",";
-  body += "\"headCorrect\":" + String((headAngle >= HEAD_ANGLE_MIN && headAngle <= HEAD_ANGLE_MAX) ? "true" : "false") + ",";
-  body += "\"imuCalib\":" + String(imuCalibStatus) + ",";
-  body += "\"airflow\":" + String(airFlow_slm, 2) + ",";
-  body += "\"bannerType\":\"" + bannerType + "\"";
-  body += "}";
+    bool wrong = (!teethSafe || wrongPathLatched || currentDepthIndex > DESIGNATED_INDEX);
+    bool done  = (currentDepthIndex == DESIGNATED_INDEX);
+    const char* bannerType = wrong ? "wrong" : (done ? "complete" : "progress");
+    const char* bannerMsg  = wrong ? (!teethSafe ? "TEETH CONTACT" : "WRONG PATH")
+                                   : (done ? "INTUBATION COMPLETE" : "IN PROGRESS");
 
-  httpPostJson("/api/esp32/sessions/" + currentSessionId + "/telemetry", body);
-}
+    String body = "{";
+    body += "\"toolDetected\":" + String(toolDetected ? "true" : "false") + ",";
+    body += "\"laryngoscopePresent\":" + String(laryngoscopePresent ? "true" : "false") + ",";
+    body += "\"teethSafe\":" + String(teethSafe ? "true" : "false") + ",";
+    body += "\"depthCm\":" + String(currentDepthIndex >= 0 ? depthPosition[currentDepthIndex] : 0, 1) + ",";
+    body += "\"wrongPath\":" + String(wrongPathLatched ? "true" : "false") + ",";
+    body += "\"correctPath\":" + String(correctPathLatched ? "true" : "false") + ",";
+    body += "\"headAngle\":" + String(headAngle, 1) + ",";
+    body += "\"headCorrect\":" + String((headAngle >= HEAD_ANGLE_MIN && headAngle <= HEAD_ANGLE_MAX) ? "true" : "false") + ",";
+    body += "\"imuCalib\":" + String(imuCalibStatus) + ",";
+    body += "\"airflow\":" + String(airFlow_slm, 2) + ",";
+    body += "\"bannerMsg\":\"" + String(bannerMsg) + "\",";
+    body += "\"bannerType\":\"" + String(bannerType) + "\"";
+    body += "}";
+    httpPostJson("/api/esp32/sessions/" + currentSessionId + "/telemetry", body);
+  }
 
-// When a session finishes (tube fully removed after reaching depth),
-// tell the backend and clear the session so the device goes back to
-// polling for the next one
-if (currentSessionId != "" && currentState == IDLE && maxDepthIndexReached == -1) {
-  httpPostJson("/api/esp32/sessions/" + currentSessionId + "/complete", "{}");
-  currentSessionId = "";
+  // Finished: tube removed again AFTER the trainee had actually started.
+  // (`sessionSawActivity` is essential - without it this condition is true
+  // the instant a session is picked up, because the manikin starts IDLE with
+  // nothing reached, and the attempt would be completed immediately.)
+  if (sessionSawActivity && currentState == IDLE && maxDepthIndexReached == -1) {
+    // Total time to intubate (laryngoscope entry -> tube at depth) is
+    // measured by the server from the telemetry stream, so no clock is
+    // needed on the ESP32.
+    int code = httpPostJson("/api/esp32/sessions/" + currentSessionId + "/complete", "{}");
+    if (code >= 200 && code < 300) {
+      currentSessionId = "";
+      sessionSawActivity = false;
+      stepsSent = 0;
+    }
+  }
 }
 ```
 
-## 5. In the app
+If you measure them, put these in the `/complete` body instead of `{}`:
+`{"laryngoscopeLiftForce":22,"timeToPlaceEtt":2.18,"ettLocationCm":-1}`
+(`totalTimeToIntubate` is optional - if omitted, the server uses the
+measured laryngoscope-entry-to-intubation time.) Fields you don't send are stored as empty
+and are ignored by the scoring.
 
-1. Trainer/admin logs in -> Admin dashboard -> Manikins tab -> register
-   the device, note the ID + key, flash them into the firmware above.
-2. Power on the manikin - it joins your WiFi and starts polling.
-3. A trainee opens SMArT, picks this manikin from the dropdown on Home
-   (only shows up if more than one is registered), taps Coach/Check/
-   Certification - this creates a session tagged with that device.
-4. Within ~2 seconds the manikin's next poll picks up that session ID
-   and starts pushing live telemetry - the trainee's Coach/Check screen
-   should light up with real depth/path/angle data within a few hundred
-   ms of that.
+Call `pushStep(n)` from the state machine at the moment each step is
+confirmed, e.g. `pushStep(3)` when the laryngoscope is introduced,
+`pushStep(7, liftForcePsi)` for the lift-force step and `pushStep(11)` when
+the designated depth is reached. If no steps are sent, the Coach dots stay
+grey and the attempt scores 0/11 as a fail.
+
+## 5. Laryngoscope status and timer
+
+- The Coach and Check screens show **Laryngoscope: PRESENT / ABSENT** from
+  the `laryngoscopePresent` field.
+- The **Intubation timer** starts the first time the server sees
+  `laryngoscopePresent: true` and stops when telemetry reports
+  `bannerType: "complete"` (tube at the designated depth).
+- The final value is saved as **Total time to intubate** (seconds) and shown
+  on Check, Certification, trainer Review and in the Excel export. If the
+  firmware sends its own `totalTimeToIntubate` in `/complete`, that value is
+  used instead.
+
+## 6. In the app
+
+1. Admin -> Manikins -> register the device, flash ID + key into the firmware.
+2. Power the manikin: it joins WiFi and starts polling.
+3. A trainee opens Coach / Check / Certification (pick the manikin on Home if
+   several are registered). This creates a session tagged with that device.
+4. Within ~2 s the manikin picks up the session and starts pushing telemetry;
+   the screen shows depth/path/angle, laryngoscope status and the timer.
 
 ## Notes
 
-- `BACKEND_HOST` needs to be reachable from the manikin's WiFi network -
-  if your backend is only bound to localhost on your dev machine, the
-  ESP32 won't be able to reach it. Use your machine's LAN IP (e.g.
-  `http://192.168.1.50:4000`) for local testing, or your real server
-  domain in production.
-- The `x-device-key` is shown once at registration time and only its
-  bcrypt hash is stored - if you lose it, deactivate that device from the
-  admin dashboard and register a new one.
-- The step-by-step "coach dots" (`/api/esp32/sessions/:id/steps`) and
-  final summary (`/complete`) were already supported before this change;
-  this only adds the missing piece — live telemetry.
+- `x-device-key` is shown once and only its bcrypt hash is stored. If lost,
+  deactivate the device and register a new one.
+- A session stays open until the manikin calls `/complete`, so reopening a
+  mode screen reuses the open session instead of creating duplicates.
+- Telemetry is relayed live over socket.io and not stored per tick; only
+  steps, final metrics and alert events are written to the database.

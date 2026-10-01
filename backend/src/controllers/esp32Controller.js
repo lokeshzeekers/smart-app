@@ -2,6 +2,51 @@ const db = require('../config/db');
 const { classifySession } = require('../utils/scoring');
 
 /**
+ * Laryngoscope timer state, cached per session so the 300ms telemetry
+ * stream doesn't hit the DB on every tick. The DB is still the source of
+ * truth (sessions.laryngoscope_entered_at / intubation_completed_at); this
+ * cache just remembers what we've already written.
+ */
+const timerCache = new Map(); // sessionId -> { enteredAt: ms|null, completedAt: ms|null }
+
+async function updateLaryngoscopeTimer(sessionId, { present, intubated }) {
+  let state = timerCache.get(sessionId);
+  if (!state) {
+    const { rows } = await db.query(
+      `SELECT laryngoscope_entered_at, intubation_completed_at FROM sessions WHERE id = $1`,
+      [sessionId]
+    );
+    state = {
+      enteredAt: rows[0]?.laryngoscope_entered_at ? new Date(rows[0].laryngoscope_entered_at).getTime() : null,
+      completedAt: rows[0]?.intubation_completed_at ? new Date(rows[0].intubation_completed_at).getTime() : null,
+    };
+    timerCache.set(sessionId, state);
+  }
+
+  // Timer starts the first time the laryngoscope is detected
+  if (present && !state.enteredAt) {
+    const { rows } = await db.query(
+      `UPDATE sessions SET laryngoscope_entered_at = COALESCE(laryngoscope_entered_at, now())
+       WHERE id = $1 RETURNING laryngoscope_entered_at`,
+      [sessionId]
+    );
+    if (rows[0]) state.enteredAt = new Date(rows[0].laryngoscope_entered_at).getTime();
+  }
+
+  // Timer stops when the tube reaches the designated depth (only after it started)
+  if (intubated && state.enteredAt && !state.completedAt) {
+    const { rows } = await db.query(
+      `UPDATE sessions SET intubation_completed_at = COALESCE(intubation_completed_at, now())
+       WHERE id = $1 RETURNING intubation_completed_at`,
+      [sessionId]
+    );
+    if (rows[0]) state.completedAt = new Date(rows[0].intubation_completed_at).getTime();
+  }
+
+  return state;
+}
+
+/**
  * Called by the ESP32 firmware in real time as the trainee moves through
  * the manikin, e.g. once per completed step:
  *   POST /api/esp32/sessions/:sessionId/steps
@@ -72,6 +117,17 @@ async function completeSession(req, res, next) {
     }
     const session = sessionRows[0];
 
+    // Laryngoscope entry -> intubation completion, measured server-side
+    // from the telemetry stream (falls back to "now" if the firmware never
+    // reported reaching depth before calling /complete).
+    let laryngoscopeTimeSec = null;
+    if (session.laryngoscope_entered_at) {
+      const endMs = session.intubation_completed_at
+        ? new Date(session.intubation_completed_at).getTime()
+        : Date.now();
+      laryngoscopeTimeSec = Math.round(((endMs - new Date(session.laryngoscope_entered_at).getTime()) / 1000) * 100) / 100;
+    }
+
     const { rows: stepRows } = await client.query(
       `SELECT count(*)::int AS passed FROM session_step_events
        WHERE session_id = $1 AND completed = true`,
@@ -88,7 +144,14 @@ async function completeSession(req, res, next) {
          laryngoscope_lift_force = $2, time_to_place_ett = $3, ett_location_cm = $4,
          total_time_to_intubate = $5, steps_passed = $6
        RETURNING *`,
-      [sessionId, laryngoscopeLiftForce, timeToPlaceEtt, ettLocationCm, totalTimeToIntubate, stepsPassed]
+      [
+        sessionId,
+        laryngoscopeLiftForce ?? null,
+        timeToPlaceEtt ?? null,
+        ettLocationCm ?? null,
+        totalTimeToIntubate ?? laryngoscopeTimeSec, // firmware value wins; otherwise the server-measured timer
+        stepsPassed,
+      ]
     );
     const metrics = metricRows[0];
 
@@ -137,6 +200,7 @@ async function completeSession(req, res, next) {
     }
 
     await client.query('COMMIT');
+    timerCache.delete(sessionId);
 
     const io = req.app.get('io');
     io.to(`session:${sessionId}`).emit('session:complete', { metrics, evaluation });
@@ -162,6 +226,7 @@ async function completeSession(req, res, next) {
  *     "headAngle": -97.4, "headCorrect": true, "imuCalib": 3,
  *     "airflow": 1.2,
  *     "bannerMsg": "IN PROGRESS", "bannerType": "progress",
+ *     "laryngoscopePresent": true,   // laryngoscope currently detected in the manikin
  *     "alertEvent": "end_point"   // OPTIONAL - only sent once, the instant
  *                                 // an alert fires (mirrors the firmware's
  *                                 // own Serial.println(">>> ...") moments)
@@ -179,8 +244,14 @@ async function pushTelemetry(req, res, next) {
     const {
       toolDetected, teethSafe, depthCm, depthStatus,
       wrongPath, correctPath, headAngle, headCorrect, imuCalib,
-      airflow, bannerMsg, bannerType, alertEvent,
+      airflow, bannerMsg, bannerType, alertEvent, laryngoscopePresent,
     } = req.body;
+
+    const timer = await updateLaryngoscopeTimer(sessionId, {
+      present: !!laryngoscopePresent,
+      intubated: bannerType === 'complete' || alertEvent === 'process_complete',
+    });
+    const nowMs = Date.now();
 
     const payload = {
       toolDetected: !!toolDetected,
@@ -195,6 +266,12 @@ async function pushTelemetry(req, res, next) {
       airflow: airflow ?? null,
       bannerMsg: bannerMsg ?? '',
       bannerType: bannerType ?? 'progress',
+      laryngoscopePresent: !!laryngoscopePresent,
+      // Timer: elapsed ms so far (frozen once the tube reached depth).
+      // Sent as a duration rather than a timestamp so phone/server clock
+      // differences don't skew what the trainee sees.
+      laryngoscopeElapsedMs: timer.enteredAt ? (timer.completedAt || nowMs) - timer.enteredAt : null,
+      timerRunning: !!timer.enteredAt && !timer.completedAt,
       at: new Date().toISOString(),
     };
 

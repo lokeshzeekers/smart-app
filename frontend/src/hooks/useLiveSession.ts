@@ -25,6 +25,12 @@ export interface Telemetry {
   airflow: number | null;
   bannerMsg: string;
   bannerType: 'progress' | 'wrong' | 'complete';
+  laryngoscopePresent?: boolean;
+  /** ms elapsed since the laryngoscope entered (frozen once intubation completes) */
+  laryngoscopeElapsedMs?: number | null;
+  timerRunning?: boolean;
+  /** client clock at the moment this packet arrived, used to tick the timer smoothly */
+  receivedAt?: number;
 }
 
 export function useLiveSession(sessionId: string | undefined) {
@@ -57,9 +63,22 @@ export function useLiveSession(sessionId: string | undefined) {
     const onComplete = (payload: { metrics: SessionMetrics }) => {
       setMetrics(payload.metrics);
       setCompleted(true);
+      // freeze the live timer on the final measured value
+      setTelemetry((prev) =>
+        prev
+          ? {
+              ...prev,
+              timerRunning: false,
+              laryngoscopeElapsedMs:
+                payload.metrics?.total_time_to_intubate != null
+                  ? payload.metrics.total_time_to_intubate * 1000
+                  : prev.laryngoscopeElapsedMs,
+            }
+          : prev
+      );
     };
 
-    const onTelemetry = (payload: Telemetry) => setTelemetry(payload);
+    const onTelemetry = (payload: Telemetry) => setTelemetry({ ...payload, receivedAt: Date.now() });
 
     socket?.on('step:update', onStepUpdate);
     socket?.on('session:complete', onComplete);

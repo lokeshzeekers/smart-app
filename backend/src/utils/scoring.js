@@ -36,25 +36,25 @@ function classifySession(metrics, thresholds) {
   } = thresholds;
 
   // Excess force on airway / teeth
-  if (laryngoscope_lift_force > max_lift_force_psi) {
+  if (laryngoscope_lift_force != null && laryngoscope_lift_force > max_lift_force_psi) {
     violations += 1;
     notes.push('Excess force on airway');
   }
 
   // ETT placement precision
-  if (Math.abs(ett_location_cm) > max_ett_location_offset_cm) {
+  if (ett_location_cm != null && Math.abs(ett_location_cm) > max_ett_location_offset_cm) {
     violations += 1;
     notes.push('Variability in ET tube tip placement');
   }
 
   // Speed of placement
-  if (time_to_place_ett > max_time_to_place_ett_sec) {
+  if (time_to_place_ett != null && time_to_place_ett > max_time_to_place_ett_sec) {
     violations += 1;
     notes.push('Rushed or delayed tube placement');
   }
 
   // Total procedure time
-  if (total_time_to_intubate > max_total_time_sec) {
+  if (total_time_to_intubate != null && total_time_to_intubate > max_total_time_sec) {
     violations += 1;
     notes.push('Slow overall intubation time');
   }

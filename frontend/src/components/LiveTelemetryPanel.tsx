@@ -1,4 +1,33 @@
+import { useEffect, useState } from 'react';
 import { Telemetry } from '../hooks/useLiveSession';
+
+export function formatElapsed(ms: number): string {
+  const totalSec = Math.max(0, ms) / 1000;
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec - m * 60;
+  return `${String(m).padStart(2, '0')}:${s.toFixed(1).padStart(4, '0')}`;
+}
+
+/** Ticks locally between telemetry packets while the timer is running. */
+function LaryngoscopeTimer({ telemetry }: { telemetry: Telemetry }) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    if (!telemetry.timerRunning) return;
+    const id = setInterval(() => force((n) => n + 1), 100);
+    return () => clearInterval(id);
+  }, [telemetry.timerRunning]);
+
+  const base = telemetry.laryngoscopeElapsedMs;
+  if (base == null) {
+    return <span className="font-mono text-sm font-semibold text-ink-300">--:--</span>;
+  }
+  const ms = telemetry.timerRunning ? base + (Date.now() - (telemetry.receivedAt ?? Date.now())) : base;
+  return (
+    <span className={`font-mono text-sm font-semibold ${telemetry.timerRunning ? 'text-brand-700' : 'text-status-pass'}`}>
+      {formatElapsed(ms)}
+    </span>
+  );
+}
 
 const bannerStyles: Record<Telemetry['bannerType'], string> = {
   progress: 'bg-surface-muted text-ink-500 border-surface-border',
@@ -47,6 +76,16 @@ export default function LiveTelemetryPanel({ telemetry }: { telemetry: Telemetry
 
         {/* Right side stats */}
         <div className="flex-1 space-y-2">
+          <div className="flex justify-between items-center">
+            <span className="text-[13px] text-ink-500">Laryngoscope</span>
+            <span className={`text-sm font-semibold ${telemetry.laryngoscopePresent ? 'text-status-pass' : 'text-ink-300'}`}>
+              {telemetry.laryngoscopePresent ? 'PRESENT' : 'ABSENT'}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-[13px] text-ink-500">Intubation timer</span>
+            <LaryngoscopeTimer telemetry={telemetry} />
+          </div>
           <div className="flex justify-between items-center">
             <span className="text-[13px] text-ink-500">Path</span>
             <PathBadge wrongPath={telemetry.wrongPath} correctPath={telemetry.correctPath} />
