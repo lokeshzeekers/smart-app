@@ -1,9 +1,10 @@
 interface Props {
-  state: 'complete' | 'pending' | 'pass' | 'bad' | 'fail';
+  state: 'complete' | 'assumed' | 'pending' | 'pass' | 'bad' | 'fail';
 }
 
 const colorMap: Record<Props['state'], string> = {
   complete: '#16A34A',
+  assumed: '#BBF7D0', // credited without a sensor: light green with a green ring
   pending: '#CBD3D9',
   pass: '#16A34A',
   bad: '#D97706',
@@ -11,5 +12,10 @@ const colorMap: Record<Props['state'], string> = {
 };
 
 export default function StatusDot({ state }: Props) {
-  return <span className="status-dot" style={{ backgroundColor: colorMap[state] }} />;
+  return (
+    <span
+      className="status-dot"
+      style={{ backgroundColor: colorMap[state], ...(state === 'assumed' ? { boxShadow: 'inset 0 0 0 2px #16A34A' } : {}) }}
+    />
+  );
 }

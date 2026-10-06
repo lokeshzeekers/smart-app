@@ -7,14 +7,47 @@ async function startSession(req, res, next) {
     const { mode, deviceId, trialNo } = req.body; // mode: coach|check|certification
     const traineeId = req.user.id;
 
+    // Resolve which manikin this session may use, server-side. The phone's
+    // stored deviceId is only a hint: a trainee pinned to a manikin by their
+    // trainer always gets that one, and anyone else may only pick a manikin
+    // that is shared or assigned to their own trainer.
+    const { rows: meRows } = await db.query(
+      `SELECT trainer_id, assigned_device_id FROM users WHERE id = $1`,
+      [traineeId]
+    );
+    const { trainer_id: trainerId, assigned_device_id: pinnedDeviceId } = meRows[0] || {};
+
+    let effectiveDeviceId = null;
+    if (pinnedDeviceId) {
+      const { rows } = await db.query(`SELECT id FROM devices WHERE id = $1 AND is_active = true`, [pinnedDeviceId]);
+      effectiveDeviceId = rows[0]?.id || null;
+    } else if (deviceId) {
+      const { rows } = await db.query(
+        `SELECT id FROM devices
+         WHERE id = $1 AND is_active = true AND (assigned_trainer_id IS NULL OR assigned_trainer_id = $2)`,
+        [deviceId, trainerId]
+      );
+      if (rows.length === 0) return res.status(400).json({ error: 'That manikin is not available to you' });
+      effectiveDeviceId = rows[0].id;
+    }
+
+    // One live session per manikin: starting/resuming here closes any other
+    // open session on the same device (another trainee's, or this trainee's
+    // other mode). The manikin polls "the newest open session for me", so
+    // without this a stale open session could keep stealing its data.
+    const claimDevice = async (sessionId) => {
+      if (!effectiveDeviceId) return;
+      await db.query(
+        `UPDATE sessions SET status = 'abandoned', completed_at = now()
+         WHERE device_id = $1 AND id <> $2 AND completed_at IS NULL`,
+        [effectiveDeviceId, sessionId]
+      );
+    };
+
     // Reuse an already-open session for this mode instead of creating a
-    // new row every time - previously, just navigating to Coach/Check/
-    // Certification from the bottom nav (which has no sessionId to pass
-    // along) started a brand new session on every single visit, flooding
-    // session history with near-empty duplicates. A session only "ends"
-    // when the manikin reports completion (or there simply isn't one
-    // connected yet, in which case this keeps returning that same open
-    // session across visits, which is what you want while testing).
+    // new row every time (navigating to Coach/Check/Certification from the
+    // bottom nav has no sessionId to pass along). A session only "ends"
+    // when the manikin reports completion.
     const { rows: openRows } = await db.query(
       `SELECT * FROM sessions WHERE trainee_id = $1 AND mode = $2 AND completed_at IS NULL
        ORDER BY started_at DESC LIMIT 1`,
@@ -23,19 +56,20 @@ async function startSession(req, res, next) {
 
     if (openRows.length > 0) {
       const existing = openRows[0];
-      // Keep the device link current if a different one was picked since
-      if (deviceId && deviceId !== existing.device_id) {
-        await db.query(`UPDATE sessions SET device_id = $2 WHERE id = $1`, [existing.id, deviceId]);
-        existing.device_id = deviceId;
+      if (effectiveDeviceId && effectiveDeviceId !== existing.device_id) {
+        await db.query(`UPDATE sessions SET device_id = $2 WHERE id = $1`, [existing.id, effectiveDeviceId]);
+        existing.device_id = effectiveDeviceId;
       }
+      await claimDevice(existing.id);
       return res.status(200).json({ session: existing });
     }
 
     const { rows } = await db.query(
       `INSERT INTO sessions (trainee_id, device_id, institution_id, mode, trial_no)
        VALUES ($1, $2, $3, $4, COALESCE($5, 1)) RETURNING *`,
-      [traineeId, deviceId || null, req.user.institutionId, mode, trialNo]
+      [traineeId, effectiveDeviceId, req.user.institutionId, mode, trialNo]
     );
+    await claimDevice(rows[0].id);
 
     res.status(201).json({ session: rows[0] });
   } catch (err) {
@@ -56,7 +90,7 @@ async function getSessionSteps(req, res, next) {
 
     const { rows: steps } = await db.query(
       `SELECT ps.step_no, ps.title, ps.has_metric, ps.metric_unit,
-              sse.completed, sse.metric_value, sse.recorded_at
+              sse.completed, sse.metric_value, sse.inferred, sse.recorded_at
        FROM procedure_steps ps
        LEFT JOIN session_step_events sse
          ON sse.step_no = ps.step_no AND sse.session_id = $1
@@ -171,14 +205,14 @@ async function listDevices(req, res, next) {
 
     if (pinnedDeviceId) {
       const { rows } = await db.query(
-        `SELECT id, device_uid, label FROM devices WHERE id = $1 AND is_active = true`,
+        `SELECT id, device_uid, label, (last_seen_at > now() - interval '20 seconds') AS online FROM devices WHERE id = $1 AND is_active = true`,
         [pinnedDeviceId]
       );
       return res.json({ devices: rows, locked: rows.length > 0 });
     }
 
     const { rows } = await db.query(
-      `SELECT id, device_uid, label FROM devices
+      `SELECT id, device_uid, label, (last_seen_at > now() - interval '20 seconds') AS online FROM devices
        WHERE is_active = true AND (assigned_trainer_id IS NULL OR assigned_trainer_id = $1)
        ORDER BY label`,
       [trainerId]

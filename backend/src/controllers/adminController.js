@@ -177,7 +177,7 @@ async function createDevice(req, res, next) {
 async function listDevices(req, res, next) {
   try {
     const { rows } = await db.query(
-      `SELECT d.id, d.device_uid, d.label, d.last_seen_at, d.is_active, d.created_at,
+      `SELECT d.id, d.device_uid, d.label, d.last_seen_at, (d.last_seen_at > now() - interval '20 seconds') AS online, d.is_active, d.created_at,
               d.assigned_trainer_id, t.full_name AS assigned_trainer_name
        FROM devices d
        LEFT JOIN users t ON t.id = d.assigned_trainer_id

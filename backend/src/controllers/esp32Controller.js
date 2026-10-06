@@ -57,17 +57,25 @@ async function updateLaryngoscopeTimer(sessionId, { present, intubated }) {
 async function pushStepEvent(req, res, next) {
   try {
     const { sessionId } = req.params;
-    const { stepNo, metricValue } = req.body;
+    const { stepNo, metricValue, inferred } = req.body;
 
-    if (!stepNo) return res.status(400).json({ error: 'stepNo is required' });
+    if (!Number.isInteger(stepNo) || stepNo < 1 || stepNo > 11) {
+      return res.status(400).json({ error: 'stepNo must be an integer from 1 to 11' });
+    }
 
+    // inferred = the firmware had no sensor for this step and credited it from
+    // the steps around it. A step that was really sensed is never downgraded
+    // to "assumed" by a later inferred report.
     const { rows } = await db.query(
-      `INSERT INTO session_step_events (session_id, step_no, completed, metric_value)
-       VALUES ($1, $2, true, $3)
+      `INSERT INTO session_step_events (session_id, step_no, completed, metric_value, inferred)
+       VALUES ($1, $2, true, $3, $4)
        ON CONFLICT (session_id, step_no)
-       DO UPDATE SET completed = true, metric_value = $3, recorded_at = now()
+       DO UPDATE SET completed = true,
+                     metric_value = COALESCE($3, session_step_events.metric_value),
+                     inferred = session_step_events.inferred AND $4,
+                     recorded_at = now()
        RETURNING *`,
-      [sessionId, stepNo, metricValue ?? null]
+      [sessionId, stepNo, metricValue ?? null, inferred === true]
     );
 
     const io = req.app.get('io');
@@ -227,9 +235,11 @@ async function completeSession(req, res, next) {
  *     "airflow": 1.2,
  *     "bannerMsg": "IN PROGRESS", "bannerType": "progress",
  *     "laryngoscopePresent": true,   // laryngoscope currently detected in the manikin
- *     "alertEvent": "end_point"   // OPTIONAL - only sent once, the instant
- *                                 // an alert fires (mirrors the firmware's
- *                                 // own Serial.println(">>> ...") moments)
+ *     "alertEvent": "end_point"   // OPTIONAL - sent once per alert, the instant it fires
+ *                                 // (the same moments the manikin's buzzer sounds):
+ *                                 // wrong_path | correct_path | teeth_contact | over_depth |
+ *                                 // end_point (tube at depth) | process_complete (stylet out) |
+ *                                 // head_position (laryngoscope in, neck not in sniffing position)
  *   }
  *
  * This is intentionally cheap: the continuous state is only relayed live
@@ -249,7 +259,8 @@ async function pushTelemetry(req, res, next) {
 
     const timer = await updateLaryngoscopeTimer(sessionId, {
       present: !!laryngoscopePresent,
-      intubated: bannerType === 'complete' || alertEvent === 'process_complete',
+      // timer stops when the tube reaches the designated depth (step 10)
+      intubated: bannerType === 'complete' || alertEvent === 'end_point' || alertEvent === 'process_complete',
     });
     const nowMs = Date.now();
 
@@ -278,7 +289,7 @@ async function pushTelemetry(req, res, next) {
     const io = req.app.get('io');
     io.to(`session:${sessionId}`).emit('telemetry:update', payload);
 
-    const ALLOWED_ALERTS = ['wrong_path', 'correct_path', 'teeth_contact', 'over_depth', 'end_point', 'process_complete'];
+    const ALLOWED_ALERTS = ['wrong_path', 'correct_path', 'teeth_contact', 'over_depth', 'end_point', 'process_complete', 'head_position'];
     if (alertEvent && ALLOWED_ALERTS.includes(alertEvent)) {
       const { rows } = await db.query(
         `INSERT INTO session_alerts (session_id, kind, detail) VALUES ($1, $2, $3) RETURNING *`,

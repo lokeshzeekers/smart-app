@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import api from '../api/client';
 import { getSocket } from '../api/socket';
 import { StepItem } from '../components/StepList';
+import { LiveAlert } from '../utils/alerts';
 
 export interface SessionMetrics {
   laryngoscope_lift_force: number | null;
@@ -39,10 +40,12 @@ export function useLiveSession(sessionId: string | undefined) {
   const [completed, setCompleted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [telemetry, setTelemetry] = useState<Telemetry | null>(null);
+  const [alerts, setAlerts] = useState<LiveAlert[]>([]);
 
   useEffect(() => {
     if (!sessionId) return;
     let mounted = true;
+    setAlerts([]);
 
     api.get(`/trainee/sessions/${sessionId}/steps`).then(({ data }) => {
       if (!mounted) return;
@@ -54,10 +57,22 @@ export function useLiveSession(sessionId: string | undefined) {
     const socket = getSocket();
     socket?.emit('session:join', sessionId);
 
-    const onStepUpdate = (evt: { step_no: number; completed: boolean; metric_value: number | null }) => {
+    const onStepUpdate = (evt: { step_no: number; completed: boolean; metric_value: number | null; inferred?: boolean }) => {
       setSteps((prev) =>
-        prev.map((s) => (s.step_no === evt.step_no ? { ...s, completed: evt.completed, metric_value: evt.metric_value } : s))
+        prev.map((s) =>
+          s.step_no === evt.step_no
+            ? { ...s, completed: evt.completed, metric_value: evt.metric_value, inferred: evt.inferred ?? false }
+            : s
+        )
       );
+    };
+
+    // Alerts mirror the manikin's buzzer. Keep the latest few and buzz the phone for bad ones.
+    const onAlert = (a: LiveAlert) => {
+      setAlerts((prev) => [a, ...prev.filter((p) => p.id !== a.id)].slice(0, 6));
+      if (['wrong_path', 'teeth_contact', 'over_depth', 'head_position'].includes(a.kind)) {
+        try { navigator.vibrate?.([200, 80, 200]); } catch { /* not supported */ }
+      }
     };
 
     const onComplete = (payload: { metrics: SessionMetrics }) => {
@@ -83,6 +98,7 @@ export function useLiveSession(sessionId: string | undefined) {
     socket?.on('step:update', onStepUpdate);
     socket?.on('session:complete', onComplete);
     socket?.on('telemetry:update', onTelemetry);
+    socket?.on('alert:new', onAlert);
 
     return () => {
       mounted = false;
@@ -90,8 +106,9 @@ export function useLiveSession(sessionId: string | undefined) {
       socket?.off('step:update', onStepUpdate);
       socket?.off('session:complete', onComplete);
       socket?.off('telemetry:update', onTelemetry);
+      socket?.off('alert:new', onAlert);
     };
   }, [sessionId]);
 
-  return { steps, metrics, completed, loading, telemetry };
+  return { steps, metrics, completed, loading, telemetry, alerts };
 }

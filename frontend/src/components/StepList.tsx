@@ -7,6 +7,8 @@ export interface StepItem {
   metric_unit: string | null;
   completed: boolean | null;
   metric_value: number | null;
+  /** true = no sensor saw this step; the manikin credited it from the steps around it */
+  inferred?: boolean | null;
 }
 
 export default function StepList({ steps, numbered = true }: { steps: StepItem[]; numbered?: boolean }) {
@@ -24,7 +26,8 @@ export default function StepList({ steps, numbered = true }: { steps: StepItem[]
                 {s.metric_unit}
               </span>
             )}
-            <StatusDot state={s.completed ? 'complete' : 'pending'} />
+            {s.completed && s.inferred && <span className="text-[11px] text-ink-300">assumed</span>}
+            <StatusDot state={s.completed ? (s.inferred ? 'assumed' : 'complete') : 'pending'} />
           </div>
         </li>
       ))}

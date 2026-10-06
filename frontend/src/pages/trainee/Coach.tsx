@@ -7,13 +7,13 @@ import { useOrStartSession } from '../../hooks/useOrStartSession';
 
 export default function Coach() {
   const { sessionId, starting } = useOrStartSession('coach');
-  const { steps, loading, telemetry } = useLiveSession(sessionId);
+  const { steps, loading, telemetry, alerts } = useLiveSession(sessionId);
 
   return (
     <div className="min-h-screen max-w-md mx-auto pb-24">
       <ModeHeader title="SMArT - Coach" />
       <div className="px-5">
-        <LiveTelemetryPanel telemetry={telemetry} />
+        <LiveTelemetryPanel telemetry={telemetry} alerts={alerts} />
         {starting || loading ? (
           <p className="text-ink-300 text-sm py-8 text-center">Starting session…</p>
         ) : (

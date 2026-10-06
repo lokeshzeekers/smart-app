@@ -18,13 +18,13 @@ function MetricRow({ label, value, unit }: { label: string; value: number | null
 
 export default function Check() {
   const { sessionId, starting } = useOrStartSession('check');
-  const { steps, metrics, loading, telemetry } = useLiveSession(sessionId);
+  const { steps, metrics, loading, telemetry, alerts } = useLiveSession(sessionId);
 
   return (
     <div className="min-h-screen max-w-md mx-auto pb-24">
       <ModeHeader title="SMArT - Check" />
       <div className="px-5 space-y-4">
-        <LiveTelemetryPanel telemetry={telemetry} />
+        <LiveTelemetryPanel telemetry={telemetry} alerts={alerts} />
         {starting || loading ? (
           <p className="text-ink-300 text-sm py-8 text-center">Starting session…</p>
         ) : (

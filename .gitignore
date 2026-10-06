@@ -3,3 +3,6 @@ dist/
 .env
 *.log
 .DS_Store
+
+# firmware secrets (WiFi password + device key)
+firmware/**/smart_config.h

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Telemetry } from '../hooks/useLiveSession';
+import { ALERT_INFO, LiveAlert } from '../utils/alerts';
 
 export function formatElapsed(ms: number): string {
   const totalSec = Math.max(0, ms) / 1000;
@@ -36,12 +37,36 @@ const bannerStyles: Record<Telemetry['bannerType'], string> = {
 };
 
 function PathBadge({ wrongPath, correctPath }: { wrongPath: boolean; correctPath: boolean }) {
-  if (wrongPath) return <span className="text-sm font-semibold text-status-fail">WRONG</span>;
-  if (correctPath) return <span className="text-sm font-semibold text-status-pass">CORRECT</span>;
+  if (wrongPath) return <span className="text-sm font-semibold text-status-fail">WRONG - FOOD PATH</span>;
+  if (correctPath) return <span className="text-sm font-semibold text-status-pass">CORRECT - LUNG PATH</span>;
   return <span className="text-sm font-semibold text-ink-300">--</span>;
 }
 
-export default function LiveTelemetryPanel({ telemetry }: { telemetry: Telemetry | null }) {
+function AlertFeed({ alerts }: { alerts: LiveAlert[] }) {
+  if (alerts.length === 0) return null;
+  return (
+    <ul className="space-y-1.5">
+      {alerts.slice(0, 4).map((a, i) => {
+        const info = ALERT_INFO[a.kind];
+        if (!info) return null;
+        const bad = info.tone === 'bad';
+        return (
+          <li
+            key={a.id}
+            className={`flex items-center justify-between gap-3 rounded-xl border px-3.5 py-2 text-[13px] ${
+              bad ? 'bg-status-failBg text-status-fail border-status-fail' : 'bg-status-passBg text-status-pass border-status-pass'
+            } ${i === 0 ? 'font-semibold' : 'opacity-70'}`}
+          >
+            <span>{bad ? '⚠ ' : '✓ '}{info.label}</span>
+            <span className="font-mono text-[11px] shrink-0">{new Date(a.created_at).toLocaleTimeString()}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+export default function LiveTelemetryPanel({ telemetry, alerts = [] }: { telemetry: Telemetry | null; alerts?: LiveAlert[] }) {
   if (!telemetry) {
     return (
       <div className="bg-surface-card rounded-2xl p-4 shadow-card mb-4 text-center text-sm text-ink-300">
@@ -57,6 +82,8 @@ export default function LiveTelemetryPanel({ telemetry }: { telemetry: Telemetry
       <div className={`rounded-xl border px-4 py-2.5 text-center text-[13px] font-semibold tracking-wide ${bannerStyles[telemetry.bannerType]}`}>
         {telemetry.bannerMsg}
       </div>
+
+      <AlertFeed alerts={alerts} />
 
       <div className="bg-surface-card rounded-2xl p-4 shadow-card flex gap-4">
         {/* Depth gauge */}

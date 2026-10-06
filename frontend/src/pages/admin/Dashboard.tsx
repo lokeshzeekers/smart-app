@@ -14,6 +14,7 @@ interface TrainerRow {
 }
 
 interface DeviceRow {
+  online?: boolean | null;
   id: string;
   device_uid: string;
   label: string;
@@ -268,7 +269,7 @@ export default function AdminDashboard() {
                     </option>
                   ))}
                 </select>
-                <span className="text-xs text-ink-300 shrink-0">{d.last_seen_at ? 'Connected' : 'Never connected'}</span>
+                <span className="text-xs text-ink-300 shrink-0">{d.online ? 'Online' : d.last_seen_at ? 'Offline' : 'Never connected'}</span>
               </div>
             </div>
           ))}

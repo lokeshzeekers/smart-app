@@ -1,250 +1,184 @@
-# Connecting the manikin to the SMArT backend
+# SMArT manikin - connection, steps, alerts and firmware
 
-The manikin firmware used to run its own WiFi Access Point and serve a local
-page; it never talked to the internet. To show up live in the SMArT app it
-now does four things:
+How a physical manikin is linked to a trainer and trainee, what each of the 11
+steps is sensed by, how the buzzer and app alerts work, and how to flash the
+firmware. Code is in `firmware/smart_cloud/`.
 
-1. Joins your real WiFi network (STA mode) instead of creating its own AP.
-2. Polls the backend to find out which session it should report against
-   (the trainee picks the manikin on their phone; no keypad/display needed).
-3. POSTs live telemetry (depth, path, angle, **laryngoscope present/absent**,
-   banner text) to the backend ~3x per second.
-4. POSTs each completed procedure step, and a final `/complete` when the
-   attempt ends.
+## 1. How it works
 
-> Variable names below (`toolDetected`, `teethSafe`, `currentDepthIndex`,
-> `depthPosition`, `DESIGNATED_INDEX`, `maxDepthIndexReached`, `currentState`,
-> `IDLE`, `airFlow_slm`, ...) are taken from your existing firmware. The
-> firmware itself is not in this repo, so adjust names if yours differ.
-
-## 0. Update the backend first
-
-Fresh install: `backend/db/schema.sql` already contains everything.
-Existing database - run the incremental migration once:
-
-```bash
-psql "$DATABASE_URL" -f backend/db/migrations/005_laryngoscope_timer.sql
+```
+Admin ── registers manikin ──► DEVICE ID + KEY (shown once) ──► flashed into the ESP32
+  └─ assigns the manikin to a trainer (or leaves it shared)
+Trainer ── (optional) pins a trainee to one manikin
+Trainee ── opens Coach / Check / Certification on the phone
+            └─ the app creates a session tagged with the trainee's manikin
+ESP32  ── asks the backend every 2 s: "what is my current session?"
+            └─ then sends:  live telemetry (~3/s)   -> phone: depth, path, neck angle,
+                                                       laryngoscope PRESENT/ABSENT, timer
+                            step events              -> green / "assumed" dots
+                            alerts                   -> alert feed on the phone (+ buzzer on the manikin)
+                            final /complete          -> metrics, SMArT score, trainer review queue
 ```
 
-Then restart the backend and rebuild the frontend. The backend must be
-reachable from the manikin's WiFi: use your machine's LAN IP
-(e.g. `http://192.168.1.50:4000`) for bench testing, not `localhost`.
-The ESP32 code below uses plain HTTP; if production sits behind HTTPS you
-must switch to `WiFiClientSecure` (or expose an HTTP port on the LAN).
+**Who can use which manikin** (enforced by the backend, not just the app):
 
-## 1. Credentials
+| Setup | Result |
+|---|---|
+| Manikin unassigned | Any trainee can pick it |
+| Admin assigns it to a trainer | Only that trainer's trainees see it |
+| Trainer pins a trainee to a manikin | That trainee always uses it; cannot change it |
+| Trainee asks for a manikin that isn't theirs | Rejected: "That manikin is not available to you" |
+| A manikin tries to write into a session that isn't open on it | Rejected (409) |
 
-Register the device in the admin dashboard (Manikins tab ->
-"+ Register a manikin"). The ID and key are shown **once** - save them.
+**One live session per manikin.** Starting or resuming a session closes any other
+open session on that manikin (another trainee's, or the same trainee's other
+mode), so the manikin always reports to the person using it now.
 
-```cpp
-const char* DEVICE_ID    = "SMART-XXXXXXXX";     // x-device-id
-const char* DEVICE_KEY   = "the-generated-key";  // x-device-key
-const char* BACKEND_HOST = "http://192.168.1.50:4000";
+**Online status.** Home shows a green dot for a manikin that has contacted the
+server in the last 20 s; the admin Manikins tab shows Online / Offline / Never connected.
 
-const char* WIFI_SSID     = "YourLabWiFi";
-const char* WIFI_PASSWORD = "YourWiFiPassword";
-```
+## 2. The 11 steps and what senses them
 
-## 2. WiFi in `setup()`
+Steps 10 and 11 follow the physical sequence: **10 = insert ETT, 11 = remove stylet.**
 
-Replace `WiFi.mode(WIFI_AP); WiFi.softAP(...)` with:
+| # | Step | Sensor | How it is credited |
+|---|---|---|---|
+| 1 | Position yourself | none | *assumed* once step 3 is seen |
+| 2 | Sniffing position | IMU head tilt | **sensed**: neck angle in range while the laryngoscope is in |
+| 3 | Introduce laryngoscope (right) | LDR | **sensed** |
+| 4 | Sweep tongue to the left | none | *assumed* together with step 9 |
+| 5 | Tip in vallecula | none (next hardware version) | *assumed* together with step 9 |
+| 6 | Do not press on teeth | push-button | **sensed**: tube inserted and the button was never pressed |
+| 7 | Sufficient force | none | *assumed* together with step 9 (real if a lift-force sensor is added) |
+| 8 | See the vocal cords | none | *assumed* together with step 9 |
+| 9 | ETT through the vocal cords | reed switches | **sensed**: lung path = correct, food path = wrong. Shown in the app as "CORRECT - LUNG PATH" / "WRONG - FOOD PATH" |
+| 10 | ETT to 21 cm (F) / 23 cm (M) | reed switches (depth) | **sensed**: designated depth reached on the correct path |
+| 11 | Remove stylet | reed switch, reverse count | **sensed**: count runs back to "out" after step 10 |
 
-```cpp
-WiFi.mode(WIFI_STA);
-WiFi.setAutoReconnect(true);
-WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-Serial.print("Connecting to WiFi");
-unsigned long t0 = millis();
-while (WiFi.status() != WL_CONNECTED && millis() - t0 < 20000) {
-  delay(400);
-  Serial.print(".");
-}
-Serial.println(WiFi.status() == WL_CONNECTED ? " connected" : " FAILED (will keep retrying)");
-Serial.println(WiFi.localIP());
-```
+**"Assumed" steps** (1, 4, 5, 7, 8) have no sensor, so the firmware credits them
+from the sensed steps around them. The app marks them with a light-green dot and
+the word *assumed*, so a trainer can tell sensed from assumed. They still count
+towards the pass mark (10 of 11). Without them every attempt would fail, as only
+6 steps are sensed. For strict scoring add
+`#define SMART_INFER_UNSENSED_STEPS 0` to `smart_config.h`; assumed steps are then
+never credited, and attempts will score as fails until those sensors exist.
 
-The 20 s limit matters: a plain `while (!connected)` loop hangs the whole
-manikin (sensors included) if the router is off. `setAutoReconnect` brings
-the link back later on its own. `server.begin()` and the local page can stay
-for bench debugging.
+## 3. Alerts
 
-## 3. Helpers (near the top of the sketch)
+Every alert sounds the **buzzer on the manikin** (instantly, even with no WiFi) and
+appears in the **alert feed on the phone** (the phone also vibrates for the red
+ones). Each alert fires once per event and re-arms when the condition clears.
+Alerts are stored per session for the trainer.
 
-```cpp
-#include <HTTPClient.h>
+| Alert | Fires when | Buzzer pattern |
+|---|---|---|
+| Wrong path | tube goes down the food pipe (reed switch) | 3 fast beeps |
+| Pressure on teeth | teeth button pressed while instruments are in the mouth | 1 long beep |
+| Too deep | tube past the designated depth | 2 long beeps |
+| Head position | laryngoscope goes in with the neck not in the sniffing position | 2 short beeps |
+| Tube at depth | step 10 reached | short, short, long |
+| Stylet removed | step 11 reached (procedure complete) | short, short, long (slower) |
+| Correct path | tube goes down the lung path | 1 tiny chirp |
 
-String currentSessionId = "";
-bool sessionSawActivity = false;       // set once the trainee actually starts
-uint16_t stepsSent = 0;                // bitmask, bit (n-1) = step n already sent
-unsigned long lastSessionCheck = 0;
-unsigned long lastTelemetryPush = 0;
+If several fire together, the most important one sounds (wrong path > teeth >
+too deep > head position > tube at depth > stylet removed > correct path).
 
-// Laryngoscope presence - wire this to YOUR laryngoscope sensor/flag.
-// (If your existing `toolDetected` is the laryngoscope sensor, just use it.)
-bool laryngoscopePresent = false;
+## 4. Timer
 
-int httpPostJson(const String& path, const String& body) {
-  if (WiFi.status() != WL_CONNECTED) return -1;
-  HTTPClient http;
-  http.setConnectTimeout(1500);   // never stall sensors for long
-  http.setTimeout(1500);
-  http.begin(String(BACKEND_HOST) + path);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("x-device-id", DEVICE_ID);
-  http.addHeader("x-device-key", DEVICE_KEY);
-  int code = http.POST(body);
-  http.end();
-  return code;
-}
+Starts the first time the laryngoscope is detected (LDR) and stops when the tube
+reaches the designated depth (step 10). Shown live on Coach and Check, and saved as
+**Total time to intubate** (a value sent by the firmware itself takes priority).
+The server measures it, so the ESP32 needs no clock.
 
-// returns "" on network/HTTP error, otherwise the response body
-String httpGetJson(const String& path) {
-  if (WiFi.status() != WL_CONNECTED) return "";
-  HTTPClient http;
-  http.setConnectTimeout(1500);
-  http.setTimeout(1500);
-  http.begin(String(BACKEND_HOST) + path);
-  http.addHeader("x-device-id", DEVICE_ID);
-  http.addHeader("x-device-key", DEVICE_KEY);
-  int code = http.GET();
-  String body = (code == 200) ? http.getString() : "";
-  http.end();
-  return body;
-}
+## 5. How an attempt ends
 
-// Response is {"sessionId":"<uuid>"} or {"sessionId":null}
-void checkActiveSession() {
-  String resp = httpGetJson("/api/esp32/sessions/active");
-  if (resp.length() == 0) return;                 // network error: keep state
-  int k = resp.indexOf("\"sessionId\":");
-  if (k < 0) return;
-  String val = resp.substring(k + 12, resp.indexOf('}', k));
-  val.trim();
-  val.replace("\"", "");
-  String newId = (val == "null") ? "" : val;
-  if (newId != currentSessionId) {                // new / changed / ended elsewhere
-    currentSessionId = newId;
-    sessionSawActivity = false;
-    stepsSent = 0;
-  }
-}
+The firmware closes the attempt (`/complete`) when:
+- the stylet is out (step 11): about 2 s later, once all steps are delivered; or
+- the tube is at depth but the stylet is never reported out: after 30 s; or
+- the laryngoscope was taken out again without ever intubating: after 20 s (abandoned).
 
-// Call once per completed procedure step (1..11). Safe to call every loop -
-// it only sends the first time. metric is e.g. lift force in psi for step 7.
-void pushStep(int stepNo, float metric = NAN) {
-  if (currentSessionId == "" || stepNo < 1 || stepNo > 11) return;
-  uint16_t bit = 1 << (stepNo - 1);
-  if (stepsSent & bit) return;
-  String body = "{\"stepNo\":" + String(stepNo);
-  if (!isnan(metric)) body += ",\"metricValue\":" + String(metric, 2);
-  body += "}";
-  int code = httpPostJson("/api/esp32/sessions/" + currentSessionId + "/steps", body);
-  if (code >= 200 && code < 300) stepsSent |= bit;   // retry next loop if it failed
-}
-```
+The next attempt only starts counting once the manikin is empty (no laryngoscope,
+no tube), so a tube left in does not complete the next attempt by itself.
+Check and Certification attempts get a SMArT score and go to the trainer's review queue.
 
-## 4. Call from `loop()`
+## 6. One-time setup
 
-After your existing `readAllSensors(); runStateMachine();`:
+1. **Backend (existing database):** run both migrations, then restart the backend and rebuild the frontend:
+   ```bash
+   psql "$DATABASE_URL" -f backend/db/migrations/005_laryngoscope_timer.sql
+   psql "$DATABASE_URL" -f backend/db/migrations/006_alerts_and_step_order.sql
+   ```
+   Fresh install: `schema.sql` + `seed.sql` already contain everything.
+   Note: sessions recorded *before* migration 006 keep their old step numbers, so for
+   those, steps 10 and 11 read the other way round.
+2. **Register the manikin:** Admin -> Manikins -> "+ Register a manikin". Copy the **device ID and key now** (the key is never shown again; if lost, deactivate and register a new one).
+3. **Assign a trainer** in the same tab (or leave it shared).
+4. **Optionally pin a trainee:** Trainer -> open the trainee -> choose the manikin.
+5. **Firmware:** section 7.
 
-```cpp
-unsigned long now = millis();
+## 7. Firmware
 
-// Which session am I working on? 2 s while idle, 5 s while active (so the
-// device also notices if the session was ended or replaced from the app).
-if (now - lastSessionCheck > (currentSessionId == "" ? 2000UL : 5000UL)) {
-  lastSessionCheck = now;
-  checkActiveSession();
-}
+Only the ESP32 Arduino core is needed (WiFi, HTTPClient, FreeRTOS). Works with core 2.x and 3.x.
 
-if (currentSessionId != "") {
-  // Trainee has really started once anything is detected
-  if (laryngoscopePresent || toolDetected || maxDepthIndexReached >= 0) sessionSawActivity = true;
+1. Copy `firmware/smart_cloud/` into your sketch folder.
+2. Copy `smart_config.example.h` to `smart_config.h` and fill in device ID/key, backend address, WiFi, LDR and buzzer pins (`smart_config.h` is git-ignored).
+3. Follow `example_integration.ino`: `#include "smart_cloud.h"`, remove the old Access-Point lines, call `smartCloudBegin()` in `setup()` and `smartCloudLoop(in)` in `loop()`, after copying your sensor variables into `SmartInputs`.
 
-  // Live telemetry every ~300 ms
-  if (now - lastTelemetryPush > 300) {
-    lastTelemetryPush = now;
+The backend address must be reachable from the manikin's WiFi: use the PC's LAN IP
+(e.g. `http://192.168.1.50:4000`) for bench tests, never `localhost`. The code uses
+plain HTTP; for an HTTPS-only server, expose an HTTP port on the LAN or switch the
+code to `WiFiClientSecure`.
 
-    bool wrong = (!teethSafe || wrongPathLatched || currentDepthIndex > DESIGNATED_INDEX);
-    bool done  = (currentDepthIndex == DESIGNATED_INDEX);
-    const char* bannerType = wrong ? "wrong" : (done ? "complete" : "progress");
-    const char* bannerMsg  = wrong ? (!teethSafe ? "TEETH CONTACT" : "WRONG PATH")
-                                   : (done ? "INTUBATION COMPLETE" : "IN PROGRESS");
+WiFi and server calls run in a **separate background task**, so a slow or missing
+network can never stall your sensors or the buzzer. Requests time out after 2 s and
+pause 3 s after a failure; WiFi reconnects on its own.
 
-    String body = "{";
-    body += "\"toolDetected\":" + String(toolDetected ? "true" : "false") + ",";
-    body += "\"laryngoscopePresent\":" + String(laryngoscopePresent ? "true" : "false") + ",";
-    body += "\"teethSafe\":" + String(teethSafe ? "true" : "false") + ",";
-    body += "\"depthCm\":" + String(currentDepthIndex >= 0 ? depthPosition[currentDepthIndex] : 0, 1) + ",";
-    body += "\"wrongPath\":" + String(wrongPathLatched ? "true" : "false") + ",";
-    body += "\"correctPath\":" + String(correctPathLatched ? "true" : "false") + ",";
-    body += "\"headAngle\":" + String(headAngle, 1) + ",";
-    body += "\"headCorrect\":" + String((headAngle >= HEAD_ANGLE_MIN && headAngle <= HEAD_ANGLE_MAX) ? "true" : "false") + ",";
-    body += "\"imuCalib\":" + String(imuCalibStatus) + ",";
-    body += "\"airflow\":" + String(airFlow_slm, 2) + ",";
-    body += "\"bannerMsg\":\"" + String(bannerMsg) + "\",";
-    body += "\"bannerType\":\"" + String(bannerType) + "\"";
-    body += "}";
-    httpPostJson("/api/esp32/sessions/" + currentSessionId + "/telemetry", body);
-  }
+### Laryngoscope LDR
 
-  // Finished: tube removed again AFTER the trainee had actually started.
-  // (`sessionSawActivity` is essential - without it this condition is true
-  // the instant a session is picked up, because the manikin starts IDLE with
-  // nothing reached, and the attempt would be completed immediately.)
-  if (sessionSawActivity && currentState == IDLE && maxDepthIndexReached == -1) {
-    // Total time to intubate (laryngoscope entry -> tube at depth) is
-    // measured by the server from the telemetry stream, so no clock is
-    // needed on the ESP32.
-    int code = httpPostJson("/api/esp32/sessions/" + currentSessionId + "/complete", "{}");
-    if (code >= 200 && code < 300) {
-      currentSessionId = "";
-      sessionSawActivity = false;
-      stepsSent = 0;
-    }
-  }
-}
-```
+- Wire the module's **AO** pin to an ADC1 pin (ESP32: GPIO 32-39; ESP32-S3: GPIO 1-10). ADC2 pins stop working while WiFi is on. Using the **DO** pin? Set `SMART_LDR_ANALOG 0`.
+- With `SMART_LDR_DEBUG 1` the Serial Monitor prints `[LDR] raw=...` every second. Note the value with the laryngoscope **out** and **in**, and set `SMART_LDR_THRESHOLD` halfway between.
+- If the reading goes **up** when the laryngoscope is in, set `SMART_LDR_PRESENT_WHEN_HIGH 1`.
+- Shield the LDR from room-light changes, otherwise the status will flicker.
 
-If you measure them, put these in the `/complete` body instead of `{}`:
-`{"laryngoscopeLiftForce":22,"timeToPlaceEtt":2.18,"ettLocationCm":-1}`
-(`totalTimeToIntubate` is optional - if omitted, the server uses the
-measured laryngoscope-entry-to-intubation time.) Fields you don't send are stored as empty
-and are ignored by the scoring.
+### Buzzer
 
-Call `pushStep(n)` from the state machine at the moment each step is
-confirmed, e.g. `pushStep(3)` when the laryngoscope is introduced,
-`pushStep(7, liftForcePsi)` for the lift-force step and `pushStep(11)` when
-the designated depth is reached. If no steps are sent, the Coach dots stay
-grey and the attempt scores 0/11 as a fail.
+- **Active buzzer** (beeps by itself when powered; most 3-pin modules): `SMART_BUZZER_ACTIVE 1`. If it sounds when the pin is LOW, set `SMART_BUZZER_ACTIVE_LOW 1`.
+- **Passive buzzer** (needs a tone): `SMART_BUZZER_ACTIVE 0`; the tone is `SMART_BUZZER_FREQ`.
+- No buzzer: `SMART_BUZZER_PIN -1`.
 
-## 5. Laryngoscope status and timer
+### Stylet (step 11): please check against your wiring
 
-- The Coach and Check screens show **Laryngoscope: PRESENT / ABSENT** from
-  the `laryngoscopePresent` field.
-- The **Intubation timer** starts the first time the server sees
-  `laryngoscopePresent: true` and stops when telemetry reports
-  `bannerType: "complete"` (tube at the designated depth).
-- The final value is saved as **Total time to intubate** (seconds) and shown
-  on Check, Certification, trainer Review and in the Excel export. If the
-  firmware sends its own `totalTimeToIntubate` in `/complete`, that value is
-  used instead.
+The firmware expects one number from you, `in.styletIndex`: the reed-switch index
+the stylet tip is at while it is inside the tube (0, 1, 2, ...), counting **down**
+as it is withdrawn, and `-1` once it is fully out. Step 11 is credited when it
+reaches `-1` after the tube is at depth. Hold the last reached index while between two
+switches, or a gap will read as "out". If the line is left out, step 11 is never
+credited and the attempt closes by the 30 s rule.
 
-## 6. In the app
+## 8. Testing
 
-1. Admin -> Manikins -> register the device, flash ID + key into the firmware.
-2. Power the manikin: it joins WiFi and starts polling.
-3. A trainee opens Coach / Check / Certification (pick the manikin on Home if
-   several are registered). This creates a session tagged with that device.
-4. Within ~2 s the manikin picks up the session and starts pushing telemetry;
-   the screen shows depth/path/angle, laryngoscope status and the timer.
+1. Power the manikin: Serial Monitor shows `connected, IP ...`. The manikin shows **online** on the trainee's Home screen.
+2. Log in as the trainee and open Coach. Serial shows `[SMArT] session -> <id>`.
+3. Move the laryngoscope in: PRESENT, the timer runs, steps 1-3 light up.
+4. Push the tube down the **food path**: red banner, 3 beeps, alert on the phone. Pull back and use the **lung path**: 1 chirp.
+5. Reach the designated depth: timer stops, short-short-long. Pull the stylet back: step 11, short-short-long.
+6. About 2 s later Serial prints `attempt reported as complete`; Check/Certification show the score.
 
-## Notes
+Unit tests for the step, alert and buzzer logic (on a PC):
+`cd firmware/smart_cloud && g++ -std=c++11 test_steps.cpp -o test_steps && ./test_steps`
 
-- `x-device-key` is shown once and only its bcrypt hash is stored. If lost,
-  deactivate the device and register a new one.
-- A session stays open until the manikin calls `/complete`, so reopening a
-  mode screen reuses the open session instead of creating duplicates.
-- Telemetry is relayed live over socket.io and not stored per tick; only
-  steps, final metrics and alert events are written to the database.
+## 9. Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| "Waiting for manikin connection" never clears | Backend address reachable from the manikin's WiFi? Device ID/key correct and device active? Session started with *this* manikin? |
+| Serial: `backend rejected the device ID/key (401)` | Wrong or old key, or the device was deactivated |
+| Laryngoscope status flickers | Raise `SMART_LDR_HYSTERESIS` / `SMART_LDR_DEBOUNCE_MS`; shield the LDR |
+| Buzzer silent | `SMART_BUZZER_PIN`, active vs passive, `ACTIVE_LOW` |
+| Steps never light up | `smartCloudLoop` not called every loop, or `depthIndex` / `correctPath` not copied from your sensors |
+| No steps after a previous attempt | The previous tube/laryngoscope is still in; remove everything and the next attempt starts |
+
+## 10. Notes
+
+- Live telemetry goes over socket.io and is not stored per tick; steps, final metrics and alerts are written to the database.
+- A session stays open until completed, so reopening a mode screen reuses it instead of creating duplicates.

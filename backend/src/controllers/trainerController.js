@@ -217,7 +217,7 @@ async function getEvaluationDetail(req, res, next) {
 
     const { rows: steps } = await db.query(
       `SELECT ps.step_no, ps.title, ps.has_metric, ps.metric_unit,
-              sse.completed, sse.metric_value
+              sse.completed, sse.metric_value, sse.inferred
        FROM procedure_steps ps
        LEFT JOIN session_step_events sse
          ON sse.step_no = ps.step_no AND sse.session_id = $1

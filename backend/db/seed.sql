@@ -9,8 +9,8 @@ INSERT INTO procedure_steps (step_no, title, has_metric, metric_unit) VALUES
  (7,  'Use sufficient force to open airway', true, 'psi'),
  (8,  'Do you see the vocal cords', false, NULL),
  (9,  'Advance ET tube through the vocal cords', false, NULL),
- (10, 'Remove stylet', false, NULL),
- (11, 'Insert ETT to 21cm (Female) or 23cm (Male)', false, NULL)
+ (10, 'Insert ETT to 21cm (Female) or 23cm (Male)', false, NULL),
+ (11, 'Remove stylet', false, NULL)
 ON CONFLICT (step_no) DO NOTHING;
 
 -- Seed: demo institutions (as seen in the trainer dashboard tabs)

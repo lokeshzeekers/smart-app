@@ -63,6 +63,7 @@ interface Summary {
 }
 
 interface Device {
+  online?: boolean | null;
   id: string;
   device_uid: string;
   label: string;
@@ -158,7 +159,9 @@ export default function TraineeHome() {
         )}
         {!devicesError && devices.length === 1 && (
           <p className="text-sm text-ink-700 bg-surface-card border border-surface-border rounded-xl px-4 py-2.5">
+            <span className={`inline-block w-2 h-2 rounded-full mr-2 ${devices[0].online ? 'bg-status-pass' : 'bg-ink-300'}`} />
             {devices[0].label} {devicesLocked ? '(assigned to you)' : ''}
+            <span className="text-xs text-ink-300 ml-2">{devices[0].online ? 'online' : 'offline'}</span>
           </p>
         )}
         {!devicesError && devices.length > 1 && (
@@ -173,6 +176,7 @@ export default function TraineeHome() {
                     : 'bg-surface-card text-ink-700 border-surface-border'
                 }`}
               >
+                <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${d.online ? 'bg-status-pass' : 'bg-ink-300'}`} />
                 {d.label}
               </button>
             ))}

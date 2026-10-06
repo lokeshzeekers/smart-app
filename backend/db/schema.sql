@@ -115,6 +115,7 @@ CREATE TABLE session_step_events (
     step_no         SMALLINT NOT NULL REFERENCES procedure_steps(step_no),
     completed       BOOLEAN NOT NULL DEFAULT true,
     metric_value    NUMERIC(10,2),                    -- e.g. 22 (psi)
+    inferred        BOOLEAN NOT NULL DEFAULT false,   -- true = no sensor saw this step; credited from the steps around it
     recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (session_id, step_no)
 );
@@ -125,7 +126,7 @@ CREATE TABLE session_step_events (
 -- NOT written here - this table is just the "moments that mattered", shown
 -- as a timeline on the trainer's review screen and usable for audit/scoring.
 CREATE TYPE session_alert_kind AS ENUM
-    ('wrong_path', 'correct_path', 'teeth_contact', 'over_depth', 'end_point', 'process_complete');
+    ('wrong_path', 'correct_path', 'teeth_contact', 'over_depth', 'end_point', 'process_complete', 'head_position');
 
 CREATE TABLE session_alerts (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
