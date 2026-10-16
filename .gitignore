@@ -9,3 +9,4 @@ firmware/**/smart_config.h
 
 # production data/backups
 backups/
+!firmware/smart_cloud/test/host/smart_config.h
