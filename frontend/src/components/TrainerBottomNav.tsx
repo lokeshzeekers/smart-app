@@ -15,7 +15,7 @@ export default function TrainerBottomNav({ notifCount = 0 }: { notifCount?: numb
   );
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-surface-border px-7 py-3 flex justify-between items-center max-w-md mx-auto">
+    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-surface-border px-7 pt-3 safe-bottom flex justify-between items-center max-w-md mx-auto">
       <NavLink to="/trainer/dashboard" className={({ isActive }) => (isActive ? 'text-brand-700' : 'text-ink-300')}>
         <Icon d="M3 11.5L12 4l9 7.5M5 10v9a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1v-9" />
       </NavLink>

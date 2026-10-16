@@ -27,3 +27,21 @@ body, p, span, div, input, button {
   border-radius: 999px;
   flex-shrink: 0;
 }
+
+/* ---------- Mobile / installed-app behaviour ---------- */
+
+/* iOS Safari zooms the whole page when a field smaller than 16px is focused */
+@media (max-width: 768px) {
+  input, select, textarea { font-size: 16px !important; }  /* beats Tailwind's text-[15px] */
+}
+
+/* No rubber-band pull-to-refresh while a live attempt is on screen */
+html, body { overscroll-behavior-y: none; }
+body { -webkit-text-size-adjust: 100%; }
+
+/* Keep the fixed bottom navigation clear of the iPhone home indicator */
+.safe-bottom { padding-bottom: calc(0.75rem + env(safe-area-inset-bottom)); }
+.safe-top { padding-top: env(safe-area-inset-top); }
+
+/* Comfortable touch targets */
+button, a { touch-action: manipulation; }

@@ -1,0 +1,137 @@
+name: CI
+
+# Runs on every push to main and on every pull request. The Deploy workflow only starts
+# after this one has succeeded on main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (syntax + tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Syntax check every source file
+        run: |
+          find src scripts -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Tests (steps/alerts flow, manikin assignment, scoring, migrations)
+        run: npm test
+
+  migrations-postgres:
+    name: Migrations + server boot (real Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      JWT_SECRET: ci-only-secret
+      PORT: 4000
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --omit=dev
+      - name: Fresh database
+        run: node scripts/migrate.js
+      - name: Second run is a no-op
+        run: node scripts/migrate.js | tee /dev/stderr | grep -q "up to date"
+      - name: Server boots and the device API is protected
+        run: |
+          node src/server.js > server.log 2>&1 &
+          for i in $(seq 1 20); do curl -fsS http://localhost:4000/health && break; sleep 1; done
+          curl -fsS http://localhost:4000/health
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:4000/api/esp32/sessions/active)" = "401"
+          cat server.log
+
+  frontend:
+    name: Frontend (types + production build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: The build is an installable app
+        run: |
+          test -f dist/sw.js
+          test -f dist/manifest.webmanifest
+          test -f dist/icons/icon-maskable-512.png
+          test -f dist/icons/apple-touch-icon.png
+
+  firmware:
+    name: Firmware (logic, compile matrix, end-to-end)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+        working-directory: backend
+      - name: Run the hardware-free firmware checks
+        run: firmware/smart_cloud/test/run_tests.sh
+
+  docker:
+    name: Docker images build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose file is valid
+        run: docker compose -f docker-compose.prod.yml config > /dev/null
+        env:
+          DOMAIN: smart.example.com
+          ACME_EMAIL: ci@example.com
+          POSTGRES_PASSWORD: ci
+          JWT_SECRET: ci
+      - name: Build backend image
+        run: docker build -t smart-backend:ci backend
+      - name: Build web image (frontend + Caddy)
+        run: docker build -f deploy/web.Dockerfile -t smart-web:ci .
+      - name: The Caddyfile is valid
+        run: |
+          docker run --rm -e DOMAIN=smart.example.com -e ACME_EMAIL=ci@example.com \
+            smart-web:ci caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile

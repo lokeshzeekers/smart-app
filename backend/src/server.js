@@ -28,6 +28,16 @@ const { attachSockets } = require('./sockets');
 const app = express();
 const server = http.createServer(app);
 
+// Behind a reverse proxy (Caddy/nginx) every request arrives from the proxy's IP, so the
+// per-IP rate limiter (e.g. 5 OTP requests / 10 min) would be shared by ALL users. Set
+// TRUST_PROXY=1 (number of proxy hops in front) so the real client IP is used instead.
+// Leave it unset when the backend is reached directly - otherwise clients could spoof
+// X-Forwarded-For to dodge the limiter.
+if (process.env.TRUST_PROXY) {
+  const hops = Number(process.env.TRUST_PROXY);
+  app.set('trust proxy', Number.isInteger(hops) ? hops : process.env.TRUST_PROXY);
+}
+
 const io = new Server(server, {
   cors: { origin: process.env.CLIENT_ORIGIN || '*', credentials: true },
 });

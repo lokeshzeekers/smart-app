@@ -6,9 +6,14 @@
 #define SMART_DEVICE_ID    "SMART-XXXXXXXX"
 #define SMART_DEVICE_KEY   "paste-the-generated-key"
 
-// Backend reachable from the manikin's WiFi (LAN IP for bench testing, never localhost).
-// Plain http:// only - see CLOUD_INTEGRATION.md for HTTPS.
-#define SMART_BACKEND_HOST "http://192.168.1.50:4000"
+// Where the backend lives. Never "localhost" - the manikin is a different machine.
+//   production (HTTPS, behind the Caddy server from DEPLOYMENT.md):  "https://smart.example.com"
+//   bench test on your own network (plain HTTP to a dev backend):    "http://192.168.1.50:4000"
+// With https:// the traffic is encrypted. By default the server's identity is NOT checked;
+// to check it, paste your certificate authority as a PEM string here, e.g.
+//   #define SMART_ROOT_CA "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n"
+// (for a Let's Encrypt domain that is the "ISRG Root X1" certificate - see CLOUD_INTEGRATION.md).
+#define SMART_BACKEND_HOST "https://smart.example.com"
 
 #define SMART_WIFI_SSID     "YourLabWiFi"
 #define SMART_WIFI_PASSWORD "YourWiFiPassword"

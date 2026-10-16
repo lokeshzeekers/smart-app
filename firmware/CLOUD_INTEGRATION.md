@@ -125,9 +125,17 @@ Only the ESP32 Arduino core is needed (WiFi, HTTPClient, FreeRTOS). Works with c
 3. Follow `example_integration.ino`: `#include "smart_cloud.h"`, remove the old Access-Point lines, call `smartCloudBegin()` in `setup()` and `smartCloudLoop(in)` in `loop()`, after copying your sensor variables into `SmartInputs`.
 
 The backend address must be reachable from the manikin's WiFi: use the PC's LAN IP
-(e.g. `http://192.168.1.50:4000`) for bench tests, never `localhost`. The code uses
-plain HTTP; for an HTTPS-only server, expose an HTTP port on the LAN or switch the
-code to `WiFiClientSecure`.
+(e.g. `http://192.168.1.50:4000`) for bench tests, never `localhost`.
+
+Both `http://` and `https://` addresses work. For the production server use
+`#define SMART_BACKEND_HOST "https://your-domain"`. By default the TLS certificate is
+**not verified** (`setInsecure()`), which keeps the data encrypted but does not prove
+the server's identity. To verify it, define `SMART_ROOT_CA` in `smart_config.h` with the
+Let's Encrypt root certificate (ISRG Root X1, PEM). If TLS is flaky on your board, a
+bench-only fallback is to run the local dev backend and use its `http://LAN-IP:4000`.
+
+**Tests without hardware:** `firmware/smart_cloud/test/run_tests.sh` compiles the real
+firmware code on a PC and runs it against the real backend routes (also run in CI).
 
 WiFi and server calls run in a **separate background task**, so a slow or missing
 network can never stall your sensors or the buzzer. Requests time out after 2 s and

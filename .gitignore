@@ -6,3 +6,6 @@ dist/
 
 # firmware secrets (WiFi password + device key)
 firmware/**/smart_config.h
+
+# production data/backups
+backups/

@@ -14,6 +14,7 @@ import TrainerReview from './pages/trainer/Review';
 import TraineePerformance from './pages/trainer/TraineePerformance';
 
 import AdminDashboard from './pages/admin/Dashboard';
+import PwaStatus from './components/PwaStatus';
 
 function ProtectedRoute({ role, children }: { role: 'trainee' | 'trainer' | 'admin'; children: JSX.Element }) {
   const { user } = useAuth();
@@ -26,6 +27,8 @@ function ProtectedRoute({ role, children }: { role: 'trainee' | 'trainer' | 'adm
 
 export default function App() {
   return (
+    <>
+    <PwaStatus />
     <Routes>
       <Route path="/" element={<TraineeLogin />} />
       <Route path="/trainer/login" element={<TrainerLogin />} />
@@ -44,5 +47,6 @@ export default function App() {
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </>
   );
 }

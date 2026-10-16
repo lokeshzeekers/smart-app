@@ -42,7 +42,7 @@ const items = [
 
 export default function BottomNav() {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-surface-border px-8 py-3 flex justify-between items-center max-w-md mx-auto">
+    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-surface-border px-8 pt-3 safe-bottom flex justify-between items-center max-w-md mx-auto">
       {items.map(({ to, icon: Icon }) => (
         <NavLink
           key={to}

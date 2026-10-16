@@ -15,6 +15,7 @@
 #pragma once
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <stdio.h>
 #include <string.h>
@@ -61,6 +62,9 @@ uint32_t          lastGen = 0;
 unsigned long     intubatedAt = 0, styletAt = 0, absentSince = 0;
 
 // Network-task only
+WiFiClient        plainClient;      // http://  (LAN / bench testing)
+WiFiClientSecure  tlsClient;        // https:// (production, behind Caddy)
+bool              tlsConfigured = false;
 unsigned long lastPoll = 0, lastTelemetry = 0, lastWifiTry = 0, backoffUntil = 0;
 
 inline void lock()   { portENTER_CRITICAL(&mux); }
@@ -71,10 +75,28 @@ inline void unlock() { portEXIT_CRITICAL(&mux); }
 int request(bool post, const char* path, const char* body, char* out, size_t outLen) {
   char url[200];
   snprintf(url, sizeof(url), "%s%s", SMART_BACKEND_HOST, path);
+  const bool https = strncmp(SMART_BACKEND_HOST, "https://", 8) == 0;
+
   HTTPClient http;
   http.setConnectTimeout(SMART_HTTP_TIMEOUT);
   http.setTimeout(SMART_HTTP_TIMEOUT);
-  if (!http.begin(url)) return -2;
+  http.setReuse(true);                     // keep the connection (and the TLS session) open between calls
+  bool began;
+  if (https) {
+    if (!tlsConfigured) {
+#ifdef SMART_ROOT_CA
+      tlsClient.setCACert(SMART_ROOT_CA);  // verified: the connection is checked against YOUR certificate
+#else
+      tlsClient.setInsecure();             // encrypted, but the server's identity is NOT verified (see README)
+#endif
+      tlsConfigured = true;
+    }
+    began = http.begin(tlsClient, url);
+  } else {
+    began = http.begin(plainClient, url);
+  }
+  if (!began) return -2;
+
   http.addHeader("x-device-id", SMART_DEVICE_ID);
   http.addHeader("x-device-key", SMART_DEVICE_KEY);
   int code;
@@ -90,6 +112,7 @@ int request(bool post, const char* path, const char* body, char* out, size_t out
     }
   }
   http.end();
+  if (code < 0) { if (https) tlsClient.stop(); else plainClient.stop(); }   // drop a broken connection
   if (code == 401) Serial.println("[SMArT] backend rejected the device ID/key (401) - re-check smart_config.h / is the device active?");
   if (code < 200 || code >= 300) backoffUntil = millis() + SMART_BACKOFF_MS;
   return code;

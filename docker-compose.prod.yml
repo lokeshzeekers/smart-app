@@ -1,0 +1,81 @@
+# Production stack:  docker compose -f docker-compose.prod.yml up -d --build
+# Needs a .env file next to this one (copy .env.production.example). Full guide: DEPLOYMENT.md
+name: smart
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: smart_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: smart_airway
+    volumes:
+      - smart_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smart_user -d smart_airway"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # no published ports: the database is reachable only from the other containers
+
+  # One-shot: creates the schema on a new database, applies new migrations on an existing
+  # one, then exits. The backend only starts if this succeeded.
+  migrate:
+    build: ./backend
+    image: smart-backend:local
+    command: ["node", "scripts/migrate.js"]
+    environment:
+      DATABASE_URL: postgresql://smart_user:${POSTGRES_PASSWORD}@postgres:5432/smart_airway
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    build: ./backend
+    image: smart-backend:local
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      PORT: 4000
+      NODE_ENV: production
+      TRUST_PROXY: 1
+      DATABASE_URL: postgresql://smart_user:${POSTGRES_PASSWORD}@postgres:5432/smart_airway
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      JWT_EXPIRES_IN: 7d
+      CLIENT_ORIGIN: https://${DOMAIN:?Set DOMAIN in .env}
+      OTP_EXPIRY_MINUTES: ${OTP_EXPIRY_MINUTES:-5}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-SMArT Airway Training <no-reply@smart-airway.app>}
+    # no published ports: only the web container talks to it
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile
+    image: smart-web:local
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data        # certificates - keep this volume, or Let's Encrypt limits you
+      - caddy_config:/config
+
+volumes:
+  smart_pg_data:
+  caddy_data:
+  caddy_config:
